@@ -1302,6 +1302,12 @@
                         <preparationGoals>clean verify -DskipTests</preparationGoals>
                     </configuration>
                 </plugin>
+
+                <plugin>
+                    <groupId>ca.vanzyl.provisio.maven.plugins</groupId>
+                    <artifactId>provisio-maven-plugin</artifactId>
+                    <version>1.0.9</version>
+                </plugin>
             </plugins>
         </pluginManagement>
 
@@ -1314,9 +1320,8 @@
             </plugin>
 
             <plugin>
-                <groupId>ca.vanzyl.maven.plugins</groupId>
+                <groupId>ca.vanzyl.provisio.maven.plugins</groupId>
                 <artifactId>provisio-maven-plugin</artifactId>
-                <version>1.0.7</version>
                 <extensions>true</extensions>
             </plugin>
 
