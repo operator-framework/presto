@@ -84,17 +84,19 @@ RUN mvn -B dependency:get -Dartifact=io.prometheus.jmx:jmx_prometheus_javaagent:
 
 FROM centos:7
 
-# our copy of faq and jq
-COPY faq.repo /etc/yum.repos.d/ecnahc515-faq-epel-7.repo
-
 RUN set -x; \
-    INSTALL_PKGS="java-1.8.0-openjdk java-1.8.0-openjdk-devel openssl less rsync faq" \
+    INSTALL_PKGS="java-1.8.0-openjdk java-1.8.0-openjdk-devel openssl less rsync" \
     && yum clean all \
     && rm -rf /var/cache/yum/* \
     && yum -y install epel-release \
     && yum install --setopt=skip_missing_names_on_install=False -y $INSTALL_PKGS \
     && yum clean all \
     && rm -rf /var/cache/yum
+
+# go get faq via static Linux binary approach
+ARG LATEST_RELEASE=0.0.6
+RUN curl -Lo /usr/local/bin/faq https://github.com/jzelinskie/faq/releases/download/$LATEST_RELEASE/faq-linux-amd64
+RUN chmod +x /usr/local/bin/faq
 
 ENV TINI_VERSION v0.18.0
 ADD https://github.com/krallin/tini/releases/download/${TINI_VERSION}/tini /usr/bin/tini
@@ -144,4 +146,4 @@ CMD ["tini", "--", "bin/launcher", "run"]
 LABEL io.k8s.display-name="OpenShift Presto" \
       io.k8s.description="This is an image used by operator-metering to to install and run Presto." \
       io.openshift.tags="openshift" \
-      maintainer="Chance Zibolski <czibolsk@redhat.com>"
+      maintainer="Operator Metering <metering-team@redhat.com>"
