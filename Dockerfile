@@ -1,12 +1,22 @@
-FROM fedora:28 as build
+FROM registry.access.redhat.com/ubi8 as build
 
 RUN set -x && \
-    INSTALL_PKGS="java-1.8.0-openjdk maven" \
+    INSTALL_PKGS="java-11-openjdk-devel wget maven" \
     && yum clean all && rm -rf /var/cache/yum/* \
-    && yum install -y \
-        $INSTALL_PKGS  \
+    && yum install -y $INSTALL_PKGS  \
     && yum clean all \
     && rm -rf /var/cache/yum
+
+# Grab a newer version of maven (3.5.4 is the default)
+RUN wget https://www-us.apache.org/dist/maven/maven-3/3.6.3/binaries/apache-maven-3.6.3-bin.tar.gz -P /tmp \
+    && tar xf /tmp/apache-maven-3.6.3-bin.tar.gz -C /opt \
+    && ln -s /opt/apache-maven-3.6.3 /opt/maven
+
+ENV MAVEN_HOME=/opt/maven \
+    M2_HOME=/opt/maven \
+    JAVA_HOME=/usr/lib/jvm/java-11-openjdk-11.0.8.10-0.el8_2.x86_64/
+
+ENV PATH=${M2_HOME}/bin:${PATH}
 
 RUN mkdir /build
 
@@ -44,7 +54,6 @@ COPY presto-record-decoder /build/presto-record-decoder
 COPY presto-tpcds /build/presto-tpcds
 COPY presto-plugin-toolkit /build/presto-plugin-toolkit
 COPY presto-spi /build/presto-spi
-COPY presto-prometheus /build/presto-prometheus
 COPY presto-thrift-testing-server /build/presto-thrift-testing-server
 COPY presto-cli /build/presto-cli
 COPY presto-hive /build/presto-hive
@@ -66,7 +75,6 @@ COPY presto-parquet /build/presto-parquet
 COPY presto-proxy /build/presto-proxy
 COPY presto-hive-hadoop2 /build/presto-hive-hadoop2
 COPY presto-benchto-benchmarks /build/presto-benchto-benchmarks
-COPY presto-testing-docker /build/presto-testing-docker
 COPY presto-memory-context /build/presto-memory-context
 COPY presto-benchmark /build/presto-benchmark
 COPY presto-example-http /build/presto-example-http
@@ -77,49 +85,60 @@ COPY presto-raptor-legacy /build/presto-raptor-legacy
 COPY presto-password-authenticators /build/presto-password-authenticators
 COPY presto-testing /build/presto-testing
 COPY presto-memsql /build/presto-memsql
+COPY presto-oracle /build/presto-oracle
+COPY presto-pinot /build/presto-pinot
+COPY presto-bigquery /build/presto-bigquery
+COPY presto-noop /build/presto-noop
+COPY presto-server-main build/presto-server-main
+COPY presto-product-tests-launcher /build/presto-product-tests-launcher
+COPY presto-prometheus/pom.xml /build/presto-prometheus/pom.xml
 COPY src /build/src
 COPY pom.xml /build/pom.xml
 
-# load Maven cache as its own layer
+# Load Maven cache as its own layer
 RUN cd /build && mvn --batch-mode --errors de.qaware.maven:go-offline-maven-plugin:resolve-dependencies -DdownloadSources -DdownloadJavadoc -Dmaven.repo.local=.m2/repository
+# Build Presto
 
-# build presto
-RUN cd /build && mvn --batch-mode --errors -Dmaven.javadoc.skip=true -Dmaven.source.skip=true -DskipTests -DfailIfNoTests=false -Dtest=false clean package -pl '!presto-testing-docker' -Dmaven.repo.local=.m2/repository
+COPY presto-prometheus/src/ /build/presto-prometheus/src/
+
+RUN cd /build && mvn --batch-mode --errors -Dmaven.javadoc.skip=true -Dmaven.source.skip=true -DskipTests -DfailIfNoTests=false -Dtest=false clean package -pl '!presto-docs,!presto-product-tests,!presto-product-tests-launcher' -Dmaven.repo.local=.m2/repository
 # Install prometheus-jmx agent
 RUN mvn -B dependency:get -Dartifact=io.prometheus.jmx:jmx_prometheus_javaagent:0.3.1:jar -Ddest=/build/jmx_prometheus_javaagent.jar
 
-FROM centos:7
+FROM registry.access.redhat.com/ubi8
 
 # go get faq via static Linux binary approach
 ARG LATEST_RELEASE=0.0.6
-RUN curl -Lo /usr/local/bin/faq https://github.com/jzelinskie/faq/releases/download/$LATEST_RELEASE/faq-linux-amd64
-RUN chmod +x /usr/local/bin/faq
+RUN curl -Lo /usr/local/bin/faq https://github.com/jzelinskie/faq/releases/download/$LATEST_RELEASE/faq-linux-amd64 && chmod +x /usr/local/bin/faq
 
 RUN set -x; \
-    INSTALL_PKGS="java-1.8.0-openjdk java-1.8.0-openjdk-devel openssl less rsync" \
+    INSTALL_PKGS="java-11-openjdk-devel openssl less rsync python3 diffutils" \
     && yum clean all \
     && rm -rf /var/cache/yum/* \
-    && yum -y install epel-release \
     && yum install --setopt=skip_missing_names_on_install=False -y $INSTALL_PKGS \
     && yum clean all \
     && rm -rf /var/cache/yum
 
+RUN alternatives --set python /usr/bin/python3
 ENV TINI_VERSION v0.18.0
 ADD https://github.com/krallin/tini/releases/download/${TINI_VERSION}/tini /usr/bin/tini
 RUN chmod +x /usr/bin/tini
 
 RUN mkdir -p /opt/presto
 
-ENV PRESTO_VERSION 328
-ENV PRESTO_HOME /opt/presto/presto-server
-ENV PRESTO_CLI /opt/presto/presto-cli
+ENV PRESTO_VERSION=334 \
+    PRESTO_HOME=/opt/presto/presto-server \
+    PRESTO_CLI=/opt/presto/presto-cli \
+    PROMETHEUS_JMX_EXPORTER=/opt/jmx_exporter/jmx_exporter.jar
+
 # Note: podman was having difficulties evaluating the PRESTO_VERSION
 # environment variables: https://github.com/containers/libpod/issues/4878
 ARG PRESTO_VERSION=${PRESTO_VERSION}
-ENV PROMETHEUS_JMX_EXPORTER /opt/jmx_exporter/jmx_exporter.jar
-ENV TERM linux
-ENV HOME /opt/presto
-ENV JAVA_HOME=/etc/alternatives/jre
+ENV TERM=linux \
+    HOME=/opt/presto \
+    MAVEN_HOME=/opt/maven \
+    M2_HOME=/opt/maven \
+    JAVA_HOME=/usr/lib/jvm/java-11-openjdk-11.0.8.10-0.el8_2.x86_64/
 
 RUN mkdir -p $PRESTO_HOME
 
@@ -129,10 +148,10 @@ COPY --from=build /build/jmx_prometheus_javaagent.jar ${PROMETHEUS_JMX_EXPORTER}
 
 # https://docs.oracle.com/javase/7/docs/technotes/guides/net/properties.html
 # Java caches dns results forever, don't cache dns results forever:
-RUN sed -i '/networkaddress.cache.ttl/d' $JAVA_HOME/lib/security/java.security
-RUN sed -i '/networkaddress.cache.negative.ttl/d' $JAVA_HOME/lib/security/java.security
-RUN echo 'networkaddress.cache.ttl=0' >> $JAVA_HOME/lib/security/java.security
-RUN echo 'networkaddress.cache.negative.ttl=0' >> $JAVA_HOME/lib/security/java.security
+RUN sed -i '/networkaddress.cache.ttl/d' $JAVA_HOME/conf/security/java.security
+RUN sed -i '/networkaddress.cache.negative.ttl/d' $JAVA_HOME/conf/security/java.security
+RUN echo 'networkaddress.cache.ttl=0' >> $JAVA_HOME/conf/security/java.security
+RUN echo 'networkaddress.cache.negative.ttl=0' >> $JAVA_HOME/conf/security/java.security
 
 RUN ln $PRESTO_CLI /usr/local/bin/presto-cli && \
     chmod 755 /usr/local/bin/presto-cli
@@ -148,7 +167,7 @@ WORKDIR $PRESTO_HOME
 CMD ["tini", "--", "bin/launcher", "run"]
 
 LABEL io.k8s.display-name="OpenShift Presto" \
-      io.k8s.description="This is an image used by the Metering Operator to install and run Presto." \
-      summary="This is an image used by the Metering Operator to install and run Presto." \
-      io.openshift.tags="openshift" \
-      maintainer="<metering-team@redhat.com>"
+    io.k8s.description="This is an image used by the Metering Operator to install and run Presto." \
+    summary="This is an image used by the Metering Operator to install and run Presto." \
+    io.openshift.tags="openshift" \
+    maintainer="<metering-team@redhat.com>"
