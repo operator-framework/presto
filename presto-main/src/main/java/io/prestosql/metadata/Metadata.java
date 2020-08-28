@@ -141,8 +141,9 @@ public interface Metadata
 
     /**
      * Creates a schema.
+     * @param principal TODO
      */
-    void createSchema(Session session, CatalogSchemaName schema, Map<String, Object> properties);
+    void createSchema(Session session, CatalogSchemaName schema, Map<String, Object> properties, PrestoPrincipal principal);
 
     /**
      * Drops the specified schema.
@@ -153,6 +154,11 @@ public interface Metadata
      * Renames the specified schema.
      */
     void renameSchema(Session session, CatalogSchemaName source, String target);
+
+    /**
+     * Set the specified schema's user/role.
+     */
+    void setSchemaAuthorization(Session session, CatalogSchemaName source, PrestoPrincipal principal);
 
     /**
      * Creates a table using the specified table metadata.
@@ -236,7 +242,12 @@ public interface Metadata
     /**
      * Begin insert query
      */
-    InsertTableHandle beginInsert(Session session, TableHandle tableHandle);
+    InsertTableHandle beginInsert(Session session, TableHandle tableHandle, List<ColumnHandle> columns);
+
+    /**
+     * @return whether connector handles missing columns during insert
+     */
+    boolean supportsMissingColumnsOnInsert(Session session, TableHandle tableHandle);
 
     /**
      * Finish insert query
@@ -301,6 +312,16 @@ public interface Metadata
     Optional<ConnectorViewDefinition> getView(Session session, QualifiedObjectName viewName);
 
     /**
+     * Gets the schema properties for the specified schema.
+     */
+    Map<String, Object> getSchemaProperties(Session session, CatalogSchemaName schemaName);
+
+    /**
+     * Gets the schema owner for the specified schema.
+     */
+    Optional<PrestoPrincipal> getSchemaOwner(Session session, CatalogSchemaName schemaName);
+
+    /**
      * Creates the specified view with the specified view definition.
      */
     void createView(Session session, QualifiedObjectName viewName, ConnectorViewDefinition definition, boolean replace);
@@ -330,6 +351,8 @@ public interface Metadata
     Optional<ProjectionApplicationResult<TableHandle>> applyProjection(Session session, TableHandle table, List<ConnectorExpression> projections, Map<String, ColumnHandle> assignments);
 
     Optional<TableHandle> applySample(Session session, TableHandle table, SampleType sampleType, double sampleRatio);
+
+    default void validateScan(Session session, TableHandle table) {}
 
     //
     // Roles and Grants
@@ -362,14 +385,14 @@ public interface Metadata
      *
      * @param grantor represents the principal specified by GRANTED BY statement
      */
-    void grantRoles(Session session, Set<String> roles, Set<PrestoPrincipal> grantees, boolean withAdminOption, Optional<PrestoPrincipal> grantor, String catalog);
+    void grantRoles(Session session, Set<String> roles, Set<PrestoPrincipal> grantees, boolean adminOption, Optional<PrestoPrincipal> grantor, String catalog);
 
     /**
      * Revokes the specified roles from the specified grantees in the specified catalog
      *
      * @param grantor represents the principal specified by GRANTED BY statement
      */
-    void revokeRoles(Session session, Set<String> roles, Set<PrestoPrincipal> grantees, boolean adminOptionFor, Optional<PrestoPrincipal> grantor, String catalog);
+    void revokeRoles(Session session, Set<String> roles, Set<PrestoPrincipal> grantees, boolean adminOption, Optional<PrestoPrincipal> grantor, String catalog);
 
     /**
      * List applicable roles, including the transitive grants, for the specified principal

@@ -28,6 +28,7 @@ import io.prestosql.sql.planner.plan.FilterNode;
 import io.prestosql.sql.planner.plan.JoinNode;
 import io.prestosql.sql.planner.plan.PlanNode;
 import io.prestosql.sql.planner.plan.PlanVisitor;
+import io.prestosql.sql.planner.plan.SpatialJoinNode;
 import io.prestosql.sql.planner.plan.TableScanNode;
 import io.prestosql.sql.tree.Expression;
 import io.prestosql.sql.tree.ExpressionRewriter;
@@ -37,6 +38,7 @@ import io.prestosql.sql.tree.LogicalBinaryExpression;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -117,25 +119,67 @@ public class RemoveUnsupportedDynamicFilters
             consumed.addAll(consumedProbeSide);
             consumed.removeAll(dynamicFilters.keySet());
 
+            Optional<Expression> filter = node
+                    .getFilter().map(this::removeAllDynamicFilters)  // no DF support at Join operators.
+                    .filter(expression -> !expression.equals(TRUE_LITERAL));
+
             PlanNode left = leftResult.getNode();
             PlanNode right = rightResult.getNode();
-            if (!left.equals(node.getLeft()) || !right.equals(node.getRight()) || !dynamicFilters.equals(node.getDynamicFilters())) {
+            if (!left.equals(node.getLeft())
+                    || !right.equals(node.getRight())
+                    || !dynamicFilters.equals(node.getDynamicFilters())
+                    || !filter.equals(node.getFilter())) {
                 return new PlanWithConsumedDynamicFilters(new JoinNode(
                         node.getId(),
                         node.getType(),
                         left,
                         right,
                         node.getCriteria(),
-                        node.getOutputSymbols(),
-                        node.getFilter(),
+                        node.getLeftOutputSymbols(),
+                        node.getRightOutputSymbols(),
+                        filter,
                         node.getLeftHashSymbol(),
                         node.getRightHashSymbol(),
                         node.getDistributionType(),
                         node.isSpillable(),
-                        dynamicFilters),
+                        dynamicFilters,
+                        node.getReorderJoinStatsAndCost()),
                         ImmutableSet.copyOf(consumed));
             }
             return new PlanWithConsumedDynamicFilters(node, ImmutableSet.copyOf(consumed));
+        }
+
+        @Override
+        public PlanWithConsumedDynamicFilters visitSpatialJoin(SpatialJoinNode node, Set<String> allowedDynamicFilterIds)
+        {
+            PlanWithConsumedDynamicFilters leftResult = node.getLeft().accept(this, allowedDynamicFilterIds);
+            PlanWithConsumedDynamicFilters rightResult = node.getRight().accept(this, allowedDynamicFilterIds);
+
+            Set<String> consumed = ImmutableSet.<String>builder()
+                    .addAll(leftResult.consumedDynamicFilterIds)
+                    .addAll(rightResult.consumedDynamicFilterIds)
+                    .build();
+
+            Expression filter = removeAllDynamicFilters(node.getFilter());
+
+            if (!node.getFilter().equals(filter)
+                    || leftResult.getNode() != node.getLeft()
+                    || rightResult.getNode() != node.getRight()) {
+                return new PlanWithConsumedDynamicFilters(
+                        new SpatialJoinNode(
+                                node.getId(),
+                                node.getType(),
+                                leftResult.getNode(),
+                                rightResult.getNode(),
+                                node.getOutputSymbols(),
+                                filter,
+                                node.getLeftPartitionSymbol(),
+                                node.getRightPartitionSymbol(),
+                                node.getKdbTree()),
+                        consumed);
+            }
+
+            return new PlanWithConsumedDynamicFilters(node, consumed);
         }
 
         @Override
@@ -162,7 +206,8 @@ public class RemoveUnsupportedDynamicFilters
             }
 
             if (!original.equals(modified) || source != node.getSource()) {
-                return new PlanWithConsumedDynamicFilters(new FilterNode(node.getId(), source, modified),
+                return new PlanWithConsumedDynamicFilters(
+                        new FilterNode(node.getId(), source, modified),
                         consumedDynamicFilterIds.build());
             }
 
@@ -198,7 +243,8 @@ public class RemoveUnsupportedDynamicFilters
 
         private Expression removeNestedDynamicFilters(Expression expression)
         {
-            return ExpressionTreeRewriter.rewriteWith(new ExpressionRewriter<Void>() {
+            return ExpressionTreeRewriter.rewriteWith(new ExpressionRewriter<Void>()
+            {
                 @Override
                 public Expression rewriteLogicalBinaryExpression(LogicalBinaryExpression node, Void context, ExpressionTreeRewriter<Void> treeRewriter)
                 {

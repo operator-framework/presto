@@ -39,9 +39,11 @@ statement
     | USE schema=identifier                                            #use
     | USE catalog=identifier '.' schema=identifier                     #use
     | CREATE SCHEMA (IF NOT EXISTS)? qualifiedName
+        (AUTHORIZATION principal)?
         (WITH properties)?                                             #createSchema
     | DROP SCHEMA (IF EXISTS)? qualifiedName (CASCADE | RESTRICT)?     #dropSchema
     | ALTER SCHEMA qualifiedName RENAME TO identifier                  #renameSchema
+    | ALTER SCHEMA qualifiedName SET AUTHORIZATION principal           #setSchemaAuthorization
     | CREATE TABLE (IF NOT EXISTS)? qualifiedName columnAliases?
         (COMMENT string)?
         (WITH properties)? AS (query | '('query')')
@@ -63,6 +65,7 @@ statement
         ADD COLUMN column=columnDefinition                             #addColumn
     | ANALYZE qualifiedName (WITH properties)?                         #analyze
     | CREATE (OR REPLACE)? VIEW qualifiedName
+        (COMMENT string)?
         (SECURITY (DEFINER | INVOKER))? AS query                       #createView
     | DROP VIEW (IF EXISTS)? qualifiedName                             #dropView
     | ALTER VIEW from=qualifiedName RENAME TO to=qualifiedName         #renameView
@@ -94,6 +97,7 @@ statement
     | EXPLAIN ANALYZE? VERBOSE?
         ('(' explainOption (',' explainOption)* ')')? statement        #explain
     | SHOW CREATE TABLE qualifiedName                                  #showCreateTable
+    | SHOW CREATE SCHEMA qualifiedName                                 #showCreateSchema
     | SHOW CREATE VIEW qualifiedName                                   #showCreateView
     | SHOW TABLES ((FROM | IN) qualifiedName)?
         (LIKE pattern=string (ESCAPE escape=string)?)?                 #showTables
@@ -101,7 +105,8 @@ statement
         (LIKE pattern=string (ESCAPE escape=string)?)?                 #showSchemas
     | SHOW CATALOGS
         (LIKE pattern=string (ESCAPE escape=string)?)?                 #showCatalogs
-    | SHOW COLUMNS (FROM | IN) qualifiedName                           #showColumns
+    | SHOW COLUMNS (FROM | IN) qualifiedName?
+        (LIKE pattern=string (ESCAPE escape=string)?)?                 #showColumns
     | SHOW STATS FOR qualifiedName                                     #showStats
     | SHOW STATS FOR '(' querySpecification ')'                        #showStatsForQuery
     | SHOW CURRENT? ROLES ((FROM | IN) identifier)?                    #showRoles
@@ -502,7 +507,7 @@ number
 
 nonReserved
     // IMPORTANT: this rule must only contain tokens. Nested rules are not supported. See SqlParser.exitNonReserved
-    : ADD | ADMIN | ALL | ANALYZE | ANY | ARRAY | ASC | AT
+    : ADD | ADMIN | ALL | ANALYZE | ANY | ARRAY | ASC | AT | AUTHORIZATION
     | BERNOULLI
     | CALL | CASCADE | CATALOGS | COLUMN | COLUMNS | COMMENT | COMMIT | COMMITTED | CURRENT
     | DATA | DATE | DAY | DEFINER | DESC | DISTRIBUTED | DOUBLE
@@ -539,6 +544,7 @@ ARRAY: 'ARRAY';
 AS: 'AS';
 ASC: 'ASC';
 AT: 'AT';
+AUTHORIZATION: 'AUTHORIZATION';
 BERNOULLI: 'BERNOULLI';
 BETWEEN: 'BETWEEN';
 BY: 'BY';

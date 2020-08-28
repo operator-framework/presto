@@ -170,7 +170,7 @@ public class ParametricScalarImplementation
                 }
             }
             else {
-                if (!argumentNativeContainerTypes.get(i).isPresent()) {
+                if (argumentNativeContainerTypes.get(i).isEmpty()) {
                     return Optional.empty();
                 }
 
@@ -368,7 +368,7 @@ public class ParametricScalarImplementation
 
             int numberOfBlockPositionArguments = 0;
             for (ArgumentProperty argumentProperty : argumentProperties) {
-                if (argumentProperty.getArgumentType() == VALUE_TYPE && argumentProperty.getNullConvention().equals(BLOCK_AND_POSITION)) {
+                if (argumentProperty.getArgumentType() == VALUE_TYPE && argumentProperty.getNullConvention() == BLOCK_AND_POSITION) {
                     numberOfBlockPositionArguments++;
                 }
             }

@@ -23,6 +23,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 import java.util.function.Consumer;
@@ -37,6 +38,7 @@ import static java.util.Collections.unmodifiableSet;
 import static java.util.Objects.requireNonNull;
 import static java.util.stream.Collectors.toCollection;
 import static java.util.stream.Collectors.toList;
+import static java.util.stream.Collectors.toUnmodifiableList;
 
 /**
  * A set containing values that are uniquely identifiable.
@@ -123,6 +125,11 @@ public class EquatableValueSet
                 .collect(toList()));
     }
 
+    public int getValuesCount()
+    {
+        return entries.size();
+    }
+
     @Override
     public boolean isNone()
     {
@@ -151,6 +158,23 @@ public class EquatableValueSet
     }
 
     @Override
+    public boolean isDiscreteSet()
+    {
+        return whiteList && !entries.isEmpty();
+    }
+
+    @Override
+    public List<Object> getDiscreteSet()
+    {
+        if (!isDiscreteSet()) {
+            throw new IllegalStateException("EquatableValueSet is not a discrete set");
+        }
+        return entries.stream()
+                .map(ValueEntry::getValue)
+                .collect(toUnmodifiableList());
+    }
+
+    @Override
     public boolean containsValue(Object value)
     {
         return whiteList == entries.contains(ValueEntry.create(type, value));
@@ -171,6 +195,12 @@ public class EquatableValueSet
             public Collection<Object> getValues()
             {
                 return EquatableValueSet.this.getValues();
+            }
+
+            @Override
+            public int getValuesCount()
+            {
+                return EquatableValueSet.this.getValuesCount();
             }
         };
     }
@@ -214,6 +244,25 @@ public class EquatableValueSet
     }
 
     @Override
+    public boolean overlaps(ValueSet other)
+    {
+        EquatableValueSet otherValueSet = checkCompatibility(other);
+
+        if (whiteList && otherValueSet.isWhiteList()) {
+            return setsOverlap(entries, otherValueSet.entries);
+        }
+        else if (whiteList) {
+            return !otherValueSet.entries.containsAll(entries);
+        }
+        else if (otherValueSet.isWhiteList()) {
+            return !entries.containsAll(otherValueSet.entries);
+        }
+        else {
+            return true;
+        }
+    }
+
+    @Override
     public EquatableValueSet union(ValueSet other)
     {
         EquatableValueSet otherValueSet = checkCompatibility(other);
@@ -239,6 +288,15 @@ public class EquatableValueSet
     }
 
     @Override
+    public String toString()
+    {
+        return format(
+                "%s[... (%d elements) ...]",
+                whiteList ? "" : "EXCLUDES",
+                entries.size());
+    }
+
+    @Override
     public String toString(ConnectorSession session)
     {
         return (whiteList ? "[ " : "EXCLUDES[ ") + entries.stream()
@@ -248,9 +306,25 @@ public class EquatableValueSet
 
     private static <T> Set<T> intersect(Set<T> set1, Set<T> set2)
     {
+        if (set1.size() > set2.size()) {
+            return intersect(set2, set1);
+        }
         return set1.stream()
                 .filter(set2::contains)
                 .collect(toLinkedSet());
+    }
+
+    private static <T> boolean setsOverlap(Set<T> set1, Set<T> set2)
+    {
+        if (set1.size() > set2.size()) {
+            return setsOverlap(set2, set1);
+        }
+        for (T element : set1) {
+            if (set2.contains(element)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static <T> Set<T> union(Set<T> set1, Set<T> set2)

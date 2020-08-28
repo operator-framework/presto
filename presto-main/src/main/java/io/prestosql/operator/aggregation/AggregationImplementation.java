@@ -13,6 +13,7 @@
  */
 package io.prestosql.operator.aggregation;
 
+import com.google.common.base.VerifyException;
 import com.google.common.collect.ImmutableList;
 import io.prestosql.metadata.BoundVariables;
 import io.prestosql.metadata.FunctionArgumentDefinition;
@@ -246,10 +247,10 @@ public class AggregationImplementation
             Class<?> methodDeclaredType = argumentNativeContainerTypes.get(i).getJavaType();
             boolean isCurrentBlockPosition = argumentNativeContainerTypes.get(i).isBlockPosition();
 
-            if (isCurrentBlockPosition && Block.class.isAssignableFrom(methodDeclaredType)) {
+            if (isCurrentBlockPosition && methodDeclaredType.isAssignableFrom(Block.class)) {
                 continue;
             }
-            if (!isCurrentBlockPosition && argumentType.isAssignableFrom(methodDeclaredType)) {
+            if (!isCurrentBlockPosition && methodDeclaredType.isAssignableFrom(argumentType)) {
                 continue;
             }
             return false;
@@ -423,7 +424,7 @@ public class AggregationImplementation
                     builder.add(BLOCK_INDEX);
                 }
                 else {
-                    throw new IllegalArgumentException("Unsupported annotation: " + annotations[i]);
+                    throw new VerifyException("Unhandled annotation: " + baseTypeAnnotation);
                 }
             }
             return builder.build();

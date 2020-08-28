@@ -14,7 +14,6 @@
 package io.prestosql.operator.scalar;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
 import io.prestosql.Session;
 import io.prestosql.spi.StandardErrorCode;
 import io.prestosql.spi.type.BigintType;
@@ -47,7 +46,6 @@ import java.time.OffsetTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.Locale;
-import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 
 import static io.prestosql.SystemSessionProperties.isLegacyTimestamp;
@@ -71,7 +69,6 @@ import static io.prestosql.util.DateTimeZoneIndex.getDateTimeZone;
 import static java.lang.Math.toIntExact;
 import static java.lang.String.format;
 import static java.time.temporal.ChronoField.MILLI_OF_SECOND;
-import static java.util.Locale.US;
 import static java.util.Objects.requireNonNull;
 import static java.util.concurrent.TimeUnit.DAYS;
 import static java.util.concurrent.TimeUnit.HOURS;
@@ -128,7 +125,7 @@ public abstract class TestDateTimeFunctionsBase
         super(testSessionBuilder()
                 .setSystemProperty("legacy_timestamp", String.valueOf(legacyTimestamp))
                 .setTimeZoneKey(TIME_ZONE_KEY)
-                .setStartTime(new DateTime(2017, 4, 1, 12, 34, 56, 789, UTC_TIME_ZONE).getMillis())
+                .setStart(Instant.ofEpochMilli(new DateTime(2017, 4, 1, 12, 34, 56, 789, UTC_TIME_ZONE).getMillis()))
                 .build());
         TIMESTAMP = legacyTimestamp ? LEGACY_TIMESTAMP : NEW_TIMESTAMP;
     }
@@ -137,7 +134,7 @@ public abstract class TestDateTimeFunctionsBase
     public void testCurrentDate()
     {
         // current date is the time at midnight in the session time zone
-        assertFunction("CURRENT_DATE", DateType.DATE, new SqlDate(toIntExact(epochDaysInZone(TIME_ZONE_KEY, session.getStartTime()))));
+        assertFunction("CURRENT_DATE", DateType.DATE, new SqlDate(toIntExact(epochDaysInZone(TIME_ZONE_KEY, session.getStart()))));
     }
 
     @Test
@@ -148,9 +145,10 @@ public abstract class TestDateTimeFunctionsBase
         TimeZoneKey montrealTimeZoneKey = getTimeZoneKey("America/Montreal");
         long timeIncrement = TimeUnit.MINUTES.toMillis(53);
         // We expect UTC millis later on so we have to use UTC chronology
-        for (long instant = ISOChronology.getInstanceUTC().getDateTimeMillis(2000, 6, 15, 0, 0, 0, 0);
-                instant < ISOChronology.getInstanceUTC().getDateTimeMillis(2016, 6, 15, 0, 0, 0, 0);
-                instant += timeIncrement) {
+        for (long millis = ISOChronology.getInstanceUTC().getDateTimeMillis(2000, 6, 15, 0, 0, 0, 0);
+                millis < ISOChronology.getInstanceUTC().getDateTimeMillis(2016, 6, 15, 0, 0, 0, 0);
+                millis += timeIncrement) {
+            Instant instant = Instant.ofEpochMilli(millis);
             assertCurrentDateAtInstant(kievTimeZoneKey, instant);
             assertCurrentDateAtInstant(bahiaBanderasTimeZoneKey, instant);
             assertCurrentDateAtInstant(montrealTimeZoneKey, instant);
@@ -158,16 +156,58 @@ public abstract class TestDateTimeFunctionsBase
         }
     }
 
-    private void assertCurrentDateAtInstant(TimeZoneKey timeZoneKey, long instant)
+    private void assertCurrentDateAtInstant(TimeZoneKey timeZoneKey, Instant instant)
     {
         long expectedDays = epochDaysInZone(timeZoneKey, instant);
-        long dateTimeCalculation = currentDate(new TestingConnectorSession("test", Optional.empty(), Optional.empty(), timeZoneKey, US, instant, ImmutableList.of(), ImmutableMap.of(), isLegacyTimestamp(session)));
+        TestingConnectorSession connectorSession = TestingConnectorSession.builder()
+                .setStart(instant)
+                .setTimeZoneKey(timeZoneKey)
+                .setLegacyTimestamp(isLegacyTimestamp(session))
+                .build();
+        long dateTimeCalculation = currentDate(connectorSession);
         assertEquals(dateTimeCalculation, expectedDays);
     }
 
-    private static long epochDaysInZone(TimeZoneKey timeZoneKey, long instant)
+    private static long epochDaysInZone(TimeZoneKey timeZoneKey, Instant instant)
     {
-        return LocalDate.from(Instant.ofEpochMilli(instant).atZone(ZoneId.of(timeZoneKey.getId()))).toEpochDay();
+        return LocalDate.from(instant.atZone(ZoneId.of(timeZoneKey.getId()))).toEpochDay();
+    }
+
+    @Test
+    public void testLocalTime()
+    {
+        functionAssertions.assertFunctionString("localtime", TimeType.TIME, "02:34:56.789");
+
+        Session localSession = Session.builder(session)
+                .setStart(Instant.ofEpochMilli(new DateTime(2017, 3, 1, 14, 30, 0, 0, DATE_TIME_ZONE).getMillis()))
+                .build();
+        try (FunctionAssertions localAssertion = new FunctionAssertions(localSession)) {
+            localAssertion.assertFunctionString("localtime", TimeType.TIME, "14:30:00.000");
+        }
+
+        localSession = Session.builder(session)
+                // we use Asia/Kathmandu here, as it has different zone offset on 2017-03-01 and on 1970-01-01
+                .setTimeZoneKey(KATHMANDU_ZONE_KEY)
+                .setStart(Instant.ofEpochMilli(new DateTime(2017, 3, 1, 15, 45, 0, 0, KATHMANDU_ZONE).getMillis()))
+                .build();
+        try (FunctionAssertions localAssertion = new FunctionAssertions(localSession)) {
+            localAssertion.assertFunctionString("localtime", TimeType.TIME, "15:45:00.000");
+        }
+    }
+
+    @Test
+    public void testCurrentTime()
+    {
+        functionAssertions.assertFunctionString("current_time", TIME_WITH_TIME_ZONE, "02:34:56.789 Pacific/Apia");
+
+        Session localSession = Session.builder(session)
+                // we use Asia/Kathmandu here, as it has different zone offset on 2017-03-01 and on 1970-01-01
+                .setTimeZoneKey(KATHMANDU_ZONE_KEY)
+                .setStart(Instant.ofEpochMilli(new DateTime(2017, 3, 1, 15, 45, 0, 0, KATHMANDU_ZONE).getMillis()))
+                .build();
+        try (FunctionAssertions localAssertion = new FunctionAssertions(localSession)) {
+            localAssertion.assertFunctionString("current_time", TIME_WITH_TIME_ZONE, "15:45:00.000 Asia/Kathmandu");
+        }
     }
 
     @Test
@@ -344,8 +384,29 @@ public abstract class TestDateTimeFunctionsBase
     public void testLastDayOfMonth()
     {
         assertFunction("last_day_of_month(" + DATE_LITERAL + ")", DateType.DATE, toDate(DATE.withDayOfMonth(31)));
+        assertFunction("last_day_of_month(DATE '2019-08-01')", DateType.DATE, toDate(LocalDate.of(2019, 8, 31)));
+        assertFunction("last_day_of_month(DATE '2019-08-31')", DateType.DATE, toDate(LocalDate.of(2019, 8, 31)));
+
         assertFunction("last_day_of_month(" + TIMESTAMP_LITERAL + ")", DateType.DATE, toDate(DATE.withDayOfMonth(31)));
+        assertFunction("last_day_of_month(TIMESTAMP '2019-08-01 00:00:00.000')", DateType.DATE, toDate(LocalDate.of(2019, 8, 31)));
+        assertFunction("last_day_of_month(TIMESTAMP '2019-08-01 17:00:00.000')", DateType.DATE, toDate(LocalDate.of(2019, 8, 31)));
+        assertFunction("last_day_of_month(TIMESTAMP '2019-08-01 23:59:59.999')", DateType.DATE, toDate(LocalDate.of(2019, 8, 31)));
+        assertFunction("last_day_of_month(TIMESTAMP '2019-08-31 23:59:59.999')", DateType.DATE, toDate(LocalDate.of(2019, 8, 31)));
+
         assertFunction("last_day_of_month(" + WEIRD_TIMESTAMP_LITERAL + ")", DateType.DATE, toDate(DATE.withDayOfMonth(31)));
+        ImmutableList.of("+05:45", "+00:00", "-05:45", "Asia/Tokyo", "Europe/London", "America/Los_Angeles", "America/Bahia_Banderas").forEach(timeZone -> {
+            assertFunction("last_day_of_month(TIMESTAMP '2018-12-31 17:00:00.000 " + timeZone + "')", DateType.DATE, toDate(LocalDate.of(2018, 12, 31)));
+            assertFunction("last_day_of_month(TIMESTAMP '2018-12-31 20:00:00.000 " + timeZone + "')", DateType.DATE, toDate(LocalDate.of(2018, 12, 31)));
+            assertFunction("last_day_of_month(TIMESTAMP '2018-12-31 23:59:59.999 " + timeZone + "')", DateType.DATE, toDate(LocalDate.of(2018, 12, 31)));
+            assertFunction("last_day_of_month(TIMESTAMP '2019-01-01 00:00:00.000 " + timeZone + "')", DateType.DATE, toDate(LocalDate.of(2019, 1, 31)));
+            assertFunction("last_day_of_month(TIMESTAMP '2019-01-01 00:00:00.001 " + timeZone + "')", DateType.DATE, toDate(LocalDate.of(2019, 1, 31)));
+            assertFunction("last_day_of_month(TIMESTAMP '2019-01-01 03:00:00.000 " + timeZone + "')", DateType.DATE, toDate(LocalDate.of(2019, 1, 31)));
+            assertFunction("last_day_of_month(TIMESTAMP '2019-01-01 06:00:00.000 " + timeZone + "')", DateType.DATE, toDate(LocalDate.of(2019, 1, 31)));
+            assertFunction("last_day_of_month(TIMESTAMP '2019-08-01 00:00:00.000 " + timeZone + "')", DateType.DATE, toDate(LocalDate.of(2019, 8, 31)));
+            assertFunction("last_day_of_month(TIMESTAMP '2019-08-01 17:00:00.000 " + timeZone + "')", DateType.DATE, toDate(LocalDate.of(2019, 8, 31)));
+            assertFunction("last_day_of_month(TIMESTAMP '2019-08-01 23:59:59.999 " + timeZone + "')", DateType.DATE, toDate(LocalDate.of(2019, 8, 31)));
+            assertFunction("last_day_of_month(TIMESTAMP '2019-08-31 23:59:59.999 " + timeZone + "')", DateType.DATE, toDate(LocalDate.of(2019, 8, 31)));
+        });
     }
 
     @Test
@@ -712,13 +773,13 @@ public abstract class TestDateTimeFunctionsBase
     @Test
     public void testParseDatetime()
     {
-        assertFunction("parse_datetime('1960/01/22 03:04', 'YYYY/MM/DD HH:mm')",
+        assertFunction("parse_datetime('1960/01/22 03:04', 'yyyy/MM/dd HH:mm')",
                 TIMESTAMP_WITH_TIME_ZONE,
                 toTimestampWithTimeZone(new DateTime(1960, 1, 22, 3, 4, 0, 0, DATE_TIME_ZONE)));
-        assertFunction("parse_datetime('1960/01/22 03:04 Asia/Oral', 'YYYY/MM/DD HH:mm ZZZZZ')",
+        assertFunction("parse_datetime('1960/01/22 03:04 Asia/Oral', 'yyyy/MM/dd HH:mm ZZZZZ')",
                 TIMESTAMP_WITH_TIME_ZONE,
                 toTimestampWithTimeZone(new DateTime(1960, 1, 22, 3, 4, 0, 0, DateTimeZone.forID("Asia/Oral"))));
-        assertFunction("parse_datetime('1960/01/22 03:04 +0500', 'YYYY/MM/DD HH:mm Z')",
+        assertFunction("parse_datetime('1960/01/22 03:04 +0500', 'yyyy/MM/dd HH:mm Z')",
                 TIMESTAMP_WITH_TIME_ZONE,
                 toTimestampWithTimeZone(new DateTime(1960, 1, 22, 3, 4, 0, 0, DateTimeZone.forOffsetHours(5))));
     }
@@ -975,7 +1036,7 @@ public abstract class TestDateTimeFunctionsBase
         Session oldKathmanduTimeZoneOffsetSession =
                 Session.builder(this.session)
                         .setTimeZoneKey(TIME_ZONE_KEY)
-                        .setStartTime(new DateTime(1980, 1, 1, 10, 0, 0, DATE_TIME_ZONE).getMillis())
+                        .setStart(Instant.ofEpochMilli(new DateTime(1980, 1, 1, 10, 0, 0, DATE_TIME_ZONE).getMillis()))
                         .build();
 
         TimeZoneKey europeWarsawTimeZoneKey = getTimeZoneKey("Europe/Warsaw");
@@ -983,7 +1044,7 @@ public abstract class TestDateTimeFunctionsBase
         Session europeWarsawSessionWinter =
                 Session.builder(this.session)
                         .setTimeZoneKey(europeWarsawTimeZoneKey)
-                        .setStartTime(new DateTime(2017, 1, 1, 10, 0, 0, europeWarsawTimeZone).getMillis())
+                        .setStart(Instant.ofEpochMilli(new DateTime(2017, 1, 1, 10, 0, 0, europeWarsawTimeZone).getMillis()))
                         .build();
         try (FunctionAssertions europeWarsawAssertionsWinter = new FunctionAssertions(europeWarsawSessionWinter);
                 FunctionAssertions oldKathmanduTimeZoneOffsetAssertions = new FunctionAssertions(oldKathmanduTimeZoneOffsetSession)) {
@@ -1177,6 +1238,11 @@ public abstract class TestDateTimeFunctionsBase
         functionAssertions.assertFunctionString(projection, expectedType, expected);
     }
 
+    private static SqlDate toDate(LocalDate localDate)
+    {
+        return new SqlDate(toIntExact(localDate.toEpochDay()));
+    }
+
     private static SqlDate toDate(DateTime dateDate)
     {
         long millis = dateDate.getMillis();
@@ -1247,7 +1313,7 @@ public abstract class TestDateTimeFunctionsBase
 
     private SqlTime toTime(LocalTime time)
     {
-        return sqlTimeOf(time, session);
+        return sqlTimeOf(time, session.toConnectorSession());
     }
 
     private static SqlTimeWithTimeZone toTimeWithTimeZone(OffsetTime offsetTime)

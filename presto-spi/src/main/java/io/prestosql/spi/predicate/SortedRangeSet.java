@@ -35,6 +35,7 @@ import java.util.stream.Collectors;
 import static java.lang.String.format;
 import static java.util.Arrays.asList;
 import static java.util.Objects.requireNonNull;
+import static java.util.stream.Collectors.toUnmodifiableList;
 
 /**
  * A set containing zero or more Ranges of the same type over a continuous space of possible values.
@@ -156,6 +157,28 @@ public final class SortedRangeSet
     }
 
     @Override
+    public boolean isDiscreteSet()
+    {
+        for (Range range : lowIndexedRanges.values()) {
+            if (!range.isSingleValue()) {
+                return false;
+            }
+        }
+        return !isNone();
+    }
+
+    @Override
+    public List<Object> getDiscreteSet()
+    {
+        if (!isDiscreteSet()) {
+            throw new IllegalStateException("SortedRangeSet is not a discrete set");
+        }
+        return lowIndexedRanges.values().stream()
+                .map(Range::getSingleValue)
+                .collect(toUnmodifiableList());
+    }
+
+    @Override
     public boolean containsValue(Object value)
     {
         return includesMarker(Marker.exactly(type, value));
@@ -260,6 +283,41 @@ public final class SortedRangeSet
     }
 
     @Override
+    public boolean overlaps(ValueSet other)
+    {
+        SortedRangeSet otherRangeSet = checkCompatibility(other);
+
+        Iterator<Range> iterator1 = lowIndexedRanges.values().iterator();
+        Iterator<Range> iterator2 = otherRangeSet.lowIndexedRanges.values().iterator();
+
+        if (iterator1.hasNext() && iterator2.hasNext()) {
+            Range range1 = iterator1.next();
+            Range range2 = iterator2.next();
+
+            while (true) {
+                if (range1.overlaps(range2)) {
+                    return true;
+                }
+
+                if (range1.getHigh().compareTo(range2.getHigh()) <= 0) {
+                    if (!iterator1.hasNext()) {
+                        break;
+                    }
+                    range1 = iterator1.next();
+                }
+                else {
+                    if (!iterator2.hasNext()) {
+                        break;
+                    }
+                    range2 = iterator2.next();
+                }
+            }
+        }
+
+        return false;
+    }
+
+    @Override
     public SortedRangeSet union(ValueSet other)
     {
         SortedRangeSet otherRangeSet = checkCompatibility(other);
@@ -350,6 +408,12 @@ public final class SortedRangeSet
         }
         final SortedRangeSet other = (SortedRangeSet) obj;
         return Objects.equals(this.lowIndexedRanges, other.lowIndexedRanges);
+    }
+
+    @Override
+    public String toString()
+    {
+        return lowIndexedRanges.values().toString();
     }
 
     @Override

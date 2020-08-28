@@ -42,12 +42,15 @@ public class TestElasticsearchConfig
                 .setConnectTimeout(new Duration(1, SECONDS))
                 .setMaxRetryTime(new Duration(30, SECONDS))
                 .setNodeRefreshInterval(new Duration(1, MINUTES))
+                .setMaxHttpConnections(25)
+                .setHttpThreadCount(Runtime.getRuntime().availableProcessors())
                 .setTlsEnabled(false)
                 .setKeystorePath(null)
                 .setKeystorePassword(null)
                 .setTrustStorePath(null)
                 .setTruststorePassword(null)
                 .setVerifyHostnames(true)
+                .setIgnorePublishAddress(false)
                 .setSecurity(null));
     }
 
@@ -64,12 +67,15 @@ public class TestElasticsearchConfig
                 .put("elasticsearch.connect-timeout", "10s")
                 .put("elasticsearch.max-retry-time", "10s")
                 .put("elasticsearch.node-refresh-interval", "10m")
+                .put("elasticsearch.max-http-connections", "100")
+                .put("elasticsearch.http-thread-count", "30")
                 .put("elasticsearch.tls.enabled", "true")
                 .put("elasticsearch.tls.keystore-path", "/tmp/keystore")
                 .put("elasticsearch.tls.keystore-password", "keystore-password")
                 .put("elasticsearch.tls.truststore-path", "/tmp/truststore")
                 .put("elasticsearch.tls.truststore-password", "truststore-password")
                 .put("elasticsearch.tls.verify-hostnames", "false")
+                .put("elasticsearch.ignore-publish-address", "true")
                 .put("elasticsearch.security", "AWS")
                 .build();
 
@@ -83,12 +89,15 @@ public class TestElasticsearchConfig
                 .setConnectTimeout(new Duration(10, SECONDS))
                 .setMaxRetryTime(new Duration(10, SECONDS))
                 .setNodeRefreshInterval(new Duration(10, MINUTES))
+                .setMaxHttpConnections(100)
+                .setHttpThreadCount(30)
                 .setTlsEnabled(true)
                 .setKeystorePath(new File("/tmp/keystore"))
                 .setKeystorePassword("keystore-password")
                 .setTrustStorePath(new File("/tmp/truststore"))
                 .setTruststorePassword("truststore-password")
                 .setVerifyHostnames(false)
+                .setIgnorePublishAddress(true)
                 .setSecurity(AWS);
 
         assertFullMapping(properties, expected);

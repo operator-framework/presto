@@ -18,10 +18,10 @@ import com.google.common.collect.ImmutableMap;
 import com.mongodb.MongoClient;
 import io.airlift.log.Logger;
 import io.airlift.log.Logging;
-import io.airlift.tpch.TpchTable;
 import io.prestosql.Session;
 import io.prestosql.plugin.tpch.TpchPlugin;
 import io.prestosql.testing.DistributedQueryRunner;
+import io.prestosql.tpch.TpchTable;
 
 import java.util.Map;
 
@@ -39,20 +39,23 @@ public final class MongoQueryRunner
     public static DistributedQueryRunner createMongoQueryRunner(MongoServer server, TpchTable<?>... tables)
             throws Exception
     {
-        return createMongoQueryRunner(server, ImmutableList.copyOf(tables));
+        return createMongoQueryRunner(server, ImmutableMap.of(), ImmutableList.copyOf(tables));
     }
 
-    public static DistributedQueryRunner createMongoQueryRunner(MongoServer server, Iterable<TpchTable<?>> tables)
+    public static DistributedQueryRunner createMongoQueryRunner(MongoServer server, Map<String, String> extraProperties, Iterable<TpchTable<?>> tables)
             throws Exception
     {
         DistributedQueryRunner queryRunner = null;
         try {
-            queryRunner = DistributedQueryRunner.builder(createSession()).build();
+            queryRunner = DistributedQueryRunner.builder(createSession())
+                    .setExtraProperties(extraProperties)
+                    .build();
 
             queryRunner.installPlugin(new TpchPlugin());
             queryRunner.createCatalog("tpch", "tpch");
 
             Map<String, String> properties = ImmutableMap.of(
+                    "mongodb.case-insensitive-name-matching", "true",
                     "mongodb.seeds", server.getAddress().toString(),
                     "mongodb.socket-keep-alive", "true");
 
@@ -85,7 +88,10 @@ public final class MongoQueryRunner
             throws Exception
     {
         Logging.initialize();
-        DistributedQueryRunner queryRunner = createMongoQueryRunner(new MongoServer(), TpchTable.getTables());
+        DistributedQueryRunner queryRunner = createMongoQueryRunner(
+                new MongoServer(),
+                ImmutableMap.of("http-server.http.port", "8080"),
+                TpchTable.getTables());
         Thread.sleep(10);
         Logger log = Logger.get(MongoQueryRunner.class);
         log.info("======== SERVER STARTED ========");

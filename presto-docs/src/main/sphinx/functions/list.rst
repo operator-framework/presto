@@ -4,12 +4,12 @@ List of Functions and Operators
 
 
 - :ref:`[] substring operator <subscript_operator>`
-- :ref:`|| concatentation operator <concatenation_operator>`
+- :ref:`|| concatenation operator <concatenation_operator>`
 - :ref:`\< comparison operator <comparison_operators>`
 - :ref:`\> comparison operator <comparison_operators>`
 - :ref:`<= comparison operator <comparison_operators>`
 - :ref:`>= comparison operator <comparison_operators>`
-- :ref:`= comparsion operator <comparison_operators>`
+- :ref:`= comparison operator <comparison_operators>`
 - :ref:`<> comparison operator <comparison_operators>`
 - :ref:`\!= comparison operator <comparison_operators>`
 - :ref:`-> lambda expression <lambda_expressions>`
@@ -83,6 +83,7 @@ C
 - :func:`checksum`
 - :func:`char2hexint`
 - :func:`chr`
+- :func:`classify`
 - :ref:`coalesce <coalesce_function>`
 - :func:`codepoint`
 - :func:`color`
@@ -100,11 +101,11 @@ C
 - :func:`covar_pop`
 - :func:`crc32`
 - :func:`cume_dist`
-- :func:`current_date`
-- :func:`current_time`
-- :func:`current_timestamp`
+- :data:`current_date`
+- :data:`current_time`
+- :data:`current_timestamp`
 - :func:`current_timezone`
-- :func:`current_user`
+- :data:`current_user`
 
 D
 
@@ -135,6 +136,7 @@ E
 
 F
 
+- :func:`features`
 - :func:`filter`
 - :func:`first_value`
 - :func:`flatten`
@@ -212,14 +214,18 @@ L
 - :func:`last_day_of_month`
 - :func:`last_value`
 - :func:`lead`
+- :func:`learn_classifier`
+- :func:`learn_libsvm_classifier`
+- :func:`learn_libsvm_regressor`
+- :func:`learn_regressor`
 - :func:`least`
 - :func:`length`
 - :func:`levenshtein_distance`
 - :func:`line_interpolate_point`
 - :func:`line_interpolate_points`
 - :func:`ln`
-- :func:`localtime`
-- :func:`localtimestamp`
+- :data:`localtime`
+- :data:`localtimestamp`
 - :func:`log`
 - :func:`log10`
 - :func:`log2`
@@ -301,6 +307,7 @@ R
 - :func:`regexp_position`
 - :func:`regexp_replace`
 - :func:`regexp_split`
+- :func:`regress`
 - :func:`regr_intercept`
 - :func:`regr_slope`
 - :func:`render`
@@ -390,6 +397,7 @@ S
 - :func:`ST_Y`
 - :func:`ST_YMax`
 - :func:`ST_YMin`
+- :func:`starts_with`
 - :func:`stddev`
 - :func:`stddev_pop`
 - :func:`stddev_samp`

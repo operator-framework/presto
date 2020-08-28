@@ -46,7 +46,6 @@ import java.util.function.Predicate;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
-import static com.google.common.collect.Maps.transformValues;
 import static com.google.common.util.concurrent.Futures.immediateFuture;
 import static com.google.common.util.concurrent.MoreExecutors.directExecutor;
 import static io.airlift.concurrent.MoreFutures.failedFuture;
@@ -69,7 +68,7 @@ import static java.util.Objects.requireNonNull;
 class HiveSplitSource
         implements ConnectorSplitSource
 {
-    private static final Logger log = Logger.get(HiveSplit.class);
+    private static final Logger log = Logger.get(HiveSplitSource.class);
 
     private final String queryId;
     private final String databaseName;
@@ -147,7 +146,7 @@ class HiveSplitSource
                     @Override
                     public <O> ListenableFuture<O> borrowBatchAsync(OptionalInt bucketNumber, int maxSize, Function<List<InternalHiveSplit>, BorrowResult<InternalHiveSplit, O>> function)
                     {
-                        checkArgument(!bucketNumber.isPresent());
+                        checkArgument(bucketNumber.isEmpty());
                         return queue.borrowBatchAsync(maxSize, function);
                     }
 
@@ -160,7 +159,7 @@ class HiveSplitSource
                     @Override
                     public boolean isFinished(OptionalInt bucketNumber)
                     {
-                        checkArgument(!bucketNumber.isPresent());
+                        checkArgument(bucketNumber.isEmpty());
                         return queue.isFinished();
                     }
                 },
@@ -368,9 +367,10 @@ class HiveSplitSource
                         block.getAddresses(),
                         internalSplit.getBucketNumber(),
                         internalSplit.isForceLocalScheduling(),
-                        transformValues(internalSplit.getColumnCoercions(), HiveTypeName::toHiveType),
+                        internalSplit.getTableToPartitionMapping(),
                         internalSplit.getBucketConversion(),
-                        internalSplit.isS3SelectPushdownEnabled()));
+                        internalSplit.isS3SelectPushdownEnabled(),
+                        internalSplit.getDeleteDeltaLocations()));
 
                 internalSplit.increaseStart(splitBytes);
 

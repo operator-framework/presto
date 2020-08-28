@@ -145,6 +145,7 @@ import io.prestosql.sql.tree.Select;
 import io.prestosql.sql.tree.SelectItem;
 import io.prestosql.sql.tree.SetPath;
 import io.prestosql.sql.tree.SetRole;
+import io.prestosql.sql.tree.SetSchemaAuthorization;
 import io.prestosql.sql.tree.SetSession;
 import io.prestosql.sql.tree.ShowCatalogs;
 import io.prestosql.sql.tree.ShowColumns;
@@ -252,6 +253,11 @@ class AstBuilder
     @Override
     public Node visitCreateSchema(SqlBaseParser.CreateSchemaContext context)
     {
+        Optional<PrincipalSpecification> principal = Optional.empty();
+        if (context.AUTHORIZATION() != null) {
+            principal = Optional.of(getPrincipalSpecification(context.principal()));
+        }
+
         List<Property> properties = ImmutableList.of();
         if (context.properties() != null) {
             properties = visit(context.properties().property(), Property.class);
@@ -261,7 +267,8 @@ class AstBuilder
                 getLocation(context),
                 getQualifiedName(context.qualifiedName()),
                 context.EXISTS() != null,
-                properties);
+                properties,
+                principal);
     }
 
     @Override
@@ -281,6 +288,15 @@ class AstBuilder
                 getLocation(context),
                 getQualifiedName(context.qualifiedName()),
                 (Identifier) visit(context.identifier()));
+    }
+
+    @Override
+    public Node visitSetSchemaAuthorization(SqlBaseParser.SetSchemaAuthorizationContext context)
+    {
+        return new SetSchemaAuthorization(
+                getLocation(context),
+                getQualifiedName(context.qualifiedName()),
+                getPrincipalSpecification(context.principal()));
     }
 
     @Override
@@ -429,6 +445,11 @@ class AstBuilder
     @Override
     public Node visitCreateView(SqlBaseParser.CreateViewContext context)
     {
+        Optional<String> comment = Optional.empty();
+        if (context.COMMENT() != null) {
+            comment = Optional.of(((StringLiteral) visit(context.string())).getValue());
+        }
+
         Optional<CreateView.Security> security = Optional.empty();
         if (context.DEFINER() != null) {
             security = Optional.of(CreateView.Security.DEFINER);
@@ -442,6 +463,7 @@ class AstBuilder
                 getQualifiedName(context.qualifiedName()),
                 (Query) visit(context.query()),
                 context.REPLACE() != null,
+                comment,
                 security);
     }
 
@@ -858,7 +880,13 @@ class AstBuilder
     @Override
     public Node visitShowColumns(SqlBaseParser.ShowColumnsContext context)
     {
-        return new ShowColumns(getLocation(context), getQualifiedName(context.qualifiedName()));
+        return new ShowColumns(
+                getLocation(context),
+                getQualifiedName(context.qualifiedName()),
+                getTextIfPresent(context.pattern)
+                        .map(AstBuilder::unquote),
+                getTextIfPresent(context.escape)
+                        .map(AstBuilder::unquote));
     }
 
     @Override
@@ -872,6 +900,12 @@ class AstBuilder
     {
         QuerySpecification specification = (QuerySpecification) visitQuerySpecification(context.querySpecification());
         return new ShowStats(Optional.of(getLocation(context)), new TableSubquery(query(specification)));
+    }
+
+    @Override
+    public Node visitShowCreateSchema(SqlBaseParser.ShowCreateSchemaContext context)
+    {
+        return new ShowCreate(getLocation(context), ShowCreate.Type.SCHEMA, getQualifiedName(context.qualifiedName()));
     }
 
     @Override

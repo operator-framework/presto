@@ -22,63 +22,35 @@ import io.airlift.configuration.DefunctConfig;
 import javax.validation.constraints.NotNull;
 
 import java.util.List;
+import java.util.Optional;
 
-import static com.google.common.collect.ImmutableList.toImmutableList;
-import static com.google.common.collect.Streams.stream;
-
-@DefunctConfig("http.server.authentication.enabled")
+@DefunctConfig({
+        "http.server.authentication.enabled",
+        "http-server.authentication.allow-forwarded-https",
+        "dispatcher.forwarded-header"})
 public class SecurityConfig
 {
     private static final Splitter SPLITTER = Splitter.on(',').trimResults().omitEmptyStrings();
 
-    private List<AuthenticationType> authenticationTypes = ImmutableList.of();
-    private boolean enableForwardingHttps;
-
-    public enum AuthenticationType
-    {
-        CERTIFICATE,
-        KERBEROS,
-        PASSWORD,
-        JWT
-    }
+    private List<String> authenticationTypes = ImmutableList.of();
 
     @NotNull
-    public List<AuthenticationType> getAuthenticationTypes()
+    public List<String> getAuthenticationTypes()
     {
         return authenticationTypes;
     }
 
-    public SecurityConfig setAuthenticationTypes(List<AuthenticationType> authenticationTypes)
+    public SecurityConfig setAuthenticationTypes(List<String> authenticationTypes)
     {
         this.authenticationTypes = ImmutableList.copyOf(authenticationTypes);
         return this;
     }
 
     @Config("http-server.authentication.type")
-    @ConfigDescription("Authentication types (supported types: CERTIFICATE, KERBEROS, PASSWORD, JWT)")
+    @ConfigDescription("Ordered list of authentication types")
     public SecurityConfig setAuthenticationTypes(String types)
     {
-        if (types == null) {
-            authenticationTypes = null;
-            return this;
-        }
-
-        authenticationTypes = stream(SPLITTER.split(types))
-                .map(AuthenticationType::valueOf)
-                .collect(toImmutableList());
-        return this;
-    }
-
-    public boolean getEnableForwardingHttps()
-    {
-        return enableForwardingHttps;
-    }
-
-    @Config("http-server.authentication.allow-forwarded-https")
-    @ConfigDescription("Enable forwarding HTTPS requests")
-    public SecurityConfig setEnableForwardingHttps(boolean enableForwardingHttps)
-    {
-        this.enableForwardingHttps = enableForwardingHttps;
+        authenticationTypes = Optional.ofNullable(types).map(SPLITTER::splitToList).orElse(null);
         return this;
     }
 }

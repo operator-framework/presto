@@ -22,6 +22,8 @@ import io.prestosql.metadata.Metadata;
 import io.prestosql.metadata.ResolvedFunction;
 import io.prestosql.operator.PagesIndex;
 import io.prestosql.plugin.hive.authentication.NoHdfsAuthentication;
+import io.prestosql.plugin.hive.azure.HiveAzureConfig;
+import io.prestosql.plugin.hive.azure.PrestoAzureConfigurationInitializer;
 import io.prestosql.plugin.hive.gcs.GoogleGcsConfigurationInitializer;
 import io.prestosql.plugin.hive.gcs.HiveGcsConfig;
 import io.prestosql.plugin.hive.orc.OrcFileWriterFactory;
@@ -32,6 +34,7 @@ import io.prestosql.plugin.hive.parquet.ParquetPageSourceFactory;
 import io.prestosql.plugin.hive.parquet.ParquetReaderConfig;
 import io.prestosql.plugin.hive.parquet.ParquetWriterConfig;
 import io.prestosql.plugin.hive.rcfile.RcFilePageSourceFactory;
+import io.prestosql.plugin.hive.rubix.RubixEnabledConfig;
 import io.prestosql.plugin.hive.s3.HiveS3Config;
 import io.prestosql.plugin.hive.s3.PrestoS3ConfigurationInitializer;
 import io.prestosql.plugin.hive.s3select.PrestoS3ClientFactory;
@@ -82,7 +85,9 @@ public final class HiveTestUtils
 
     public static TestingConnectorSession getHiveSession(HiveConfig hiveConfig, OrcReaderConfig orcReaderConfig)
     {
-        return new TestingConnectorSession(getHiveSessionProperties(hiveConfig, orcReaderConfig).getSessionProperties());
+        return TestingConnectorSession.builder()
+                .setPropertyMetadata(getHiveSessionProperties(hiveConfig, orcReaderConfig).getSessionProperties())
+                .build();
     }
 
     public static HiveSessionProperties getHiveSessionProperties(HiveConfig hiveConfig)
@@ -92,8 +97,14 @@ public final class HiveTestUtils
 
     public static HiveSessionProperties getHiveSessionProperties(HiveConfig hiveConfig, OrcReaderConfig orcReaderConfig)
     {
+        return getHiveSessionProperties(hiveConfig, new RubixEnabledConfig(), orcReaderConfig);
+    }
+
+    public static HiveSessionProperties getHiveSessionProperties(HiveConfig hiveConfig, RubixEnabledConfig rubixEnabledConfig, OrcReaderConfig orcReaderConfig)
+    {
         return new HiveSessionProperties(
                 hiveConfig,
+                rubixEnabledConfig,
                 orcReaderConfig,
                 new OrcWriterConfig(),
                 new ParquetReaderConfig(),
@@ -106,7 +117,7 @@ public final class HiveTestUtils
         return ImmutableSet.<HivePageSourceFactory>builder()
                 .add(new RcFilePageSourceFactory(TYPE_MANAGER, hdfsEnvironment, stats))
                 .add(new OrcPageSourceFactory(new OrcReaderConfig(), hdfsEnvironment, stats))
-                .add(new ParquetPageSourceFactory(TYPE_MANAGER, hdfsEnvironment, stats, new ParquetReaderConfig()))
+                .add(new ParquetPageSourceFactory(hdfsEnvironment, stats, new ParquetReaderConfig()))
                 .build();
     }
 
@@ -148,7 +159,7 @@ public final class HiveTestUtils
 
     public static HiveRecordCursorProvider createGenericHiveRecordCursorProvider(HdfsEnvironment hdfsEnvironment)
     {
-        return new GenericHiveRecordCursorProvider(hdfsEnvironment, new DataSize(100, MEGABYTE));
+        return new GenericHiveRecordCursorProvider(hdfsEnvironment, DataSize.of(100, MEGABYTE));
     }
 
     private static HdfsEnvironment createTestHdfsEnvironment()
@@ -158,7 +169,8 @@ public final class HiveTestUtils
                         new HdfsConfig(),
                         ImmutableSet.of(
                                 new PrestoS3ConfigurationInitializer(new HiveS3Config()),
-                                new GoogleGcsConfigurationInitializer(new HiveGcsConfig()))),
+                                new GoogleGcsConfigurationInitializer(new HiveGcsConfig()),
+                                new PrestoAzureConfigurationInitializer(new HiveAzureConfig()))),
                 ImmutableSet.of());
         return new HdfsEnvironment(hdfsConfig, new HdfsConfig(), new NoHdfsAuthentication());
     }

@@ -65,6 +65,7 @@ import static io.prestosql.connector.informationschema.InformationSchemaTable.TA
 import static io.prestosql.connector.informationschema.InformationSchemaTable.VIEWS;
 import static io.prestosql.metadata.MetadataUtil.findColumnMetadata;
 import static io.prestosql.spi.type.VarcharType.createUnboundedVarcharType;
+import static java.util.Collections.emptyList;
 import static java.util.Locale.ENGLISH;
 import static java.util.Objects.requireNonNull;
 import static java.util.function.Function.identity;
@@ -96,11 +97,9 @@ public class InformationSchemaMetadata
     @Override
     public ConnectorTableHandle getTableHandle(ConnectorSession connectorSession, SchemaTableName tableName)
     {
-        Optional<InformationSchemaTable> informationSchemaTable = InformationSchemaTable.of(tableName);
-        if (informationSchemaTable.isPresent()) {
-            return new InformationSchemaTableHandle(catalogName, informationSchemaTable.get(), defaultPrefixes(catalogName), OptionalLong.empty());
-        }
-        return null;
+        return InformationSchemaTable.of(tableName)
+                .map(table -> new InformationSchemaTableHandle(catalogName, table, defaultPrefixes(catalogName), OptionalLong.empty()))
+                .orElse(null);
     }
 
     @Override
@@ -130,7 +129,7 @@ public class InformationSchemaMetadata
         String columnName = ((InformationSchemaColumnHandle) columnHandle).getColumnName();
 
         ColumnMetadata columnMetadata = findColumnMetadata(tableMetadata, columnName);
-        checkArgument(columnMetadata != null, "Column %s on table %s does not exist", columnName, tableMetadata.getTable());
+        checkArgument(columnMetadata != null, "Column '%s' on table '%s' does not exist", columnName, tableMetadata.getTable());
         return columnMetadata;
     }
 
@@ -150,7 +149,6 @@ public class InformationSchemaMetadata
     public Map<SchemaTableName, List<ColumnMetadata>> listTableColumns(ConnectorSession session, SchemaTablePrefix prefix)
     {
         requireNonNull(prefix, "prefix is null");
-        ImmutableMap.Builder<SchemaTableName, List<ColumnMetadata>> builder = ImmutableMap.builder();
         return Arrays.stream(InformationSchemaTable.values())
                 .filter(table -> prefix.matches(table.getSchemaTableName()))
                 .collect(toImmutableMap(InformationSchemaTable::getSchemaTableName, table -> table.getTableMetadata().getColumns()));
@@ -165,7 +163,13 @@ public class InformationSchemaMetadata
     @Override
     public ConnectorTableProperties getTableProperties(ConnectorSession session, ConnectorTableHandle table)
     {
-        return new ConnectorTableProperties();
+        InformationSchemaTableHandle tableHandle = (InformationSchemaTableHandle) table;
+        return new ConnectorTableProperties(
+                tableHandle.getPrefixes().isEmpty() ? TupleDomain.none() : TupleDomain.all(),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                emptyList());
     }
 
     @Override
@@ -221,7 +225,7 @@ public class InformationSchemaMetadata
         InformationSchemaTable informationSchemaTable = table.getTable();
         Set<QualifiedTablePrefix> prefixes = calculatePrefixesWithSchemaName(session, constraint.getSummary(), constraint.predicate());
         Set<QualifiedTablePrefix> tablePrefixes = calculatePrefixesWithTableName(informationSchemaTable, session, prefixes, constraint.getSummary(), constraint.predicate());
-        // in case of high number of prefixes it is better to populate all data and then filter
+
         if (tablePrefixes.size() <= MAX_PREFIXES_COUNT) {
             prefixes = tablePrefixes;
         }
@@ -247,12 +251,12 @@ public class InformationSchemaMetadata
         if (schemas.isPresent()) {
             return schemas.get().stream()
                     .filter(this::isLowerCase)
-                    .filter(schema -> !predicate.isPresent() || predicate.get().test(schemaAsFixedValues(schema)))
+                    .filter(schema -> predicate.isEmpty() || predicate.get().test(schemaAsFixedValues(schema)))
                     .map(schema -> new QualifiedTablePrefix(catalogName, schema))
                     .collect(toImmutableSet());
         }
 
-        if (!predicate.isPresent()) {
+        if (predicate.isEmpty()) {
             return ImmutableSet.of(new QualifiedTablePrefix(catalogName));
         }
 
@@ -274,7 +278,7 @@ public class InformationSchemaMetadata
         Optional<Set<String>> tables = filterString(constraint, TABLE_NAME_COLUMN_HANDLE);
         if (tables.isPresent()) {
             return prefixes.stream()
-                    .peek(prefix -> verify(!prefix.asQualifiedObjectName().isPresent()))
+                    .peek(prefix -> verify(prefix.asQualifiedObjectName().isEmpty()))
                     .flatMap(prefix -> prefix.getSchemaName()
                             .map(schemaName -> Stream.of(prefix))
                             .orElseGet(() -> listSchemaNames(session)))
@@ -282,12 +286,12 @@ public class InformationSchemaMetadata
                             .filter(this::isLowerCase)
                             .map(table -> new QualifiedObjectName(catalogName, prefix.getSchemaName().get(), table)))
                     .filter(objectName -> !isColumnsEnumeratingTable(informationSchemaTable) || metadata.getTableHandle(session, objectName).isPresent() || metadata.getView(session, objectName).isPresent())
-                    .filter(objectName -> !predicate.isPresent() || predicate.get().test(asFixedValues(objectName)))
+                    .filter(objectName -> predicate.isEmpty() || predicate.get().test(asFixedValues(objectName)))
                     .map(QualifiedObjectName::asQualifiedTablePrefix)
                     .collect(toImmutableSet());
         }
 
-        if (!predicate.isPresent() || !isColumnsEnumeratingTable(informationSchemaTable)) {
+        if (predicate.isEmpty() || !isColumnsEnumeratingTable(informationSchemaTable)) {
             return prefixes;
         }
 
@@ -302,7 +306,7 @@ public class InformationSchemaMetadata
 
     private boolean isColumnsEnumeratingTable(InformationSchemaTable table)
     {
-        return COLUMNS.equals(table);
+        return COLUMNS == table;
     }
 
     private Stream<QualifiedTablePrefix> listSchemaNames(Session session)

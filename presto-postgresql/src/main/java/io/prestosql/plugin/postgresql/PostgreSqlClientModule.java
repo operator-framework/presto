@@ -14,26 +14,21 @@
 package io.prestosql.plugin.postgresql;
 
 import com.google.inject.Binder;
-import com.google.inject.Key;
 import com.google.inject.Module;
 import com.google.inject.Provides;
 import com.google.inject.Scopes;
 import com.google.inject.Singleton;
-import com.google.inject.multibindings.Multibinder;
 import io.prestosql.plugin.jdbc.BaseJdbcConfig;
 import io.prestosql.plugin.jdbc.ConnectionFactory;
-import io.prestosql.plugin.jdbc.DecimalConfig;
-import io.prestosql.plugin.jdbc.DecimalSessionPropertiesProvider;
+import io.prestosql.plugin.jdbc.DecimalModule;
 import io.prestosql.plugin.jdbc.DriverConnectionFactory;
 import io.prestosql.plugin.jdbc.ForBaseJdbc;
 import io.prestosql.plugin.jdbc.JdbcClient;
-import io.prestosql.plugin.jdbc.SessionPropertiesProvider;
-import io.prestosql.plugin.jdbc.TypeHandlingJdbcConfig;
 import io.prestosql.plugin.jdbc.credential.CredentialProvider;
 import org.postgresql.Driver;
 
-import static com.google.inject.multibindings.Multibinder.newSetBinder;
 import static io.airlift.configuration.ConfigBinder.configBinder;
+import static io.prestosql.plugin.jdbc.JdbcModule.bindSessionPropertiesProvider;
 
 public class PostgreSqlClientModule
         implements Module
@@ -41,16 +36,10 @@ public class PostgreSqlClientModule
     @Override
     public void configure(Binder binder)
     {
-        binder.bind(Key.get(JdbcClient.class, ForBaseJdbc.class))
-                .to(PostgreSqlClient.class).in(Scopes.SINGLETON);
-        configBinder(binder).bindConfig(BaseJdbcConfig.class);
-        configBinder(binder).bindConfig(TypeHandlingJdbcConfig.class);
+        binder.bind(JdbcClient.class).annotatedWith(ForBaseJdbc.class).to(PostgreSqlClient.class).in(Scopes.SINGLETON);
         configBinder(binder).bindConfig(PostgreSqlConfig.class);
-        configBinder(binder).bindConfig(DecimalConfig.class);
-
-        Multibinder multiBinder = newSetBinder(binder, SessionPropertiesProvider.class);
-        multiBinder.addBinding().to(PostgreSqlSessionProperties.class).in(Scopes.SINGLETON);
-        multiBinder.addBinding().to(DecimalSessionPropertiesProvider.class).in(Scopes.SINGLETON);
+        bindSessionPropertiesProvider(binder, PostgreSqlSessionProperties.class);
+        binder.install(new DecimalModule());
     }
 
     @Provides

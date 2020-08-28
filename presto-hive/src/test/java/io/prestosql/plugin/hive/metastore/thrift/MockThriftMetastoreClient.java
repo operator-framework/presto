@@ -22,6 +22,7 @@ import org.apache.hadoop.hive.metastore.Warehouse;
 import org.apache.hadoop.hive.metastore.api.ColumnStatisticsData;
 import org.apache.hadoop.hive.metastore.api.ColumnStatisticsObj;
 import org.apache.hadoop.hive.metastore.api.Database;
+import org.apache.hadoop.hive.metastore.api.EnvironmentContext;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.HiveObjectPrivilege;
 import org.apache.hadoop.hive.metastore.api.HiveObjectRef;
@@ -161,7 +162,6 @@ public class MockThriftMetastoreClient
 
     @Override
     public List<FieldSchema> getFields(String databaseName, String tableName)
-            throws TException
     {
         return ImmutableList.of(new FieldSchema("key", "string", null));
     }
@@ -218,7 +218,8 @@ public class MockThriftMetastoreClient
     @Override
     public void setPartitionColumnStatistics(String databaseName, String tableName, String partitionName, List<ColumnStatisticsObj> statistics)
     {
-        throw new UnsupportedOperationException();
+        accessCount.incrementAndGet();
+        // No-op
     }
 
     @Override
@@ -229,6 +230,12 @@ public class MockThriftMetastoreClient
 
     @Override
     public List<String> getTableNamesByFilter(String databaseName, String filter)
+    {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public List<String> getTableNamesByType(String databaseName, String tableType)
     {
         throw new UnsupportedOperationException();
     }
@@ -326,7 +333,7 @@ public class MockThriftMetastoreClient
     }
 
     @Override
-    public void alterTable(String databaseName, String tableName, Table newTable)
+    public void alterTableWithEnvironmentContext(String databaseName, String tableName, Table newTable, EnvironmentContext context)
     {
         throw new UnsupportedOperationException();
     }
@@ -346,7 +353,8 @@ public class MockThriftMetastoreClient
     @Override
     public void alterPartition(String databaseName, String tableName, Partition partition)
     {
-        throw new UnsupportedOperationException();
+        accessCount.incrementAndGet();
+        // No-op
     }
 
     @Override
@@ -373,14 +381,12 @@ public class MockThriftMetastoreClient
 
     @Override
     public void createRole(String role, String grantor)
-            throws TException
     {
         // No-op
     }
 
     @Override
     public void dropRole(String role)
-            throws TException
     {
         // No-op
     }
@@ -399,21 +405,18 @@ public class MockThriftMetastoreClient
 
     @Override
     public void grantRole(String role, String granteeName, PrincipalType granteeType, String grantorName, PrincipalType grantorType, boolean grantOption)
-            throws TException
     {
         // No-op
     }
 
     @Override
     public void revokeRole(String role, String granteeName, PrincipalType granteeType, boolean grantOption)
-            throws TException
     {
         // No-op
     }
 
     @Override
     public List<RolePrincipalGrant> listRoleGrants(String name, PrincipalType principalType)
-            throws TException
     {
         accessCount.incrementAndGet();
         if (throwException) {
@@ -436,49 +439,42 @@ public class MockThriftMetastoreClient
 
     @Override
     public long openTransaction(String user)
-            throws TException
     {
         throw new UnsupportedOperationException();
     }
 
     @Override
     public void commitTransaction(long transactionId)
-            throws TException
     {
         throw new UnsupportedOperationException();
     }
 
     @Override
     public void sendTransactionHeartbeat(long transactionId)
-            throws TException
     {
         throw new UnsupportedOperationException();
     }
 
     @Override
     public LockResponse acquireLock(LockRequest lockRequest)
-            throws TException
     {
         throw new UnsupportedOperationException();
     }
 
     @Override
     public LockResponse checkLock(long lockId)
-            throws TException
     {
         throw new UnsupportedOperationException();
     }
 
     @Override
     public String getValidWriteIds(List<String> tableList, long currentTransactionId)
-            throws TException
     {
         throw new UnsupportedOperationException();
     }
 
     @Override
     public String get_config_value(String name, String defaultValue)
-            throws TException
     {
         throw new UnsupportedOperationException();
     }

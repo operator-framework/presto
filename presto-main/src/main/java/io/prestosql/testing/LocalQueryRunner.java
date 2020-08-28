@@ -41,6 +41,7 @@ import io.prestosql.cost.CostCalculatorWithEstimatedExchanges;
 import io.prestosql.cost.CostComparator;
 import io.prestosql.cost.StatsCalculator;
 import io.prestosql.cost.TaskCountEstimator;
+import io.prestosql.eventlistener.EventListenerConfig;
 import io.prestosql.eventlistener.EventListenerManager;
 import io.prestosql.execution.CommentTask;
 import io.prestosql.execution.CommitTask;
@@ -88,6 +89,7 @@ import io.prestosql.metadata.QualifiedTablePrefix;
 import io.prestosql.metadata.SchemaPropertyManager;
 import io.prestosql.metadata.SessionPropertyManager;
 import io.prestosql.metadata.Split;
+import io.prestosql.metadata.SqlFunction;
 import io.prestosql.metadata.TableHandle;
 import io.prestosql.metadata.TablePropertyManager;
 import io.prestosql.operator.Driver;
@@ -100,10 +102,12 @@ import io.prestosql.operator.PagesIndex;
 import io.prestosql.operator.StageExecutionDescriptor;
 import io.prestosql.operator.TaskContext;
 import io.prestosql.operator.index.IndexJoinLookupStats;
+import io.prestosql.plugin.base.security.AllowAllSystemAccessControl;
+import io.prestosql.security.GroupProviderManager;
 import io.prestosql.server.PluginManager;
 import io.prestosql.server.PluginManagerConfig;
-import io.prestosql.server.ServerConfig;
 import io.prestosql.server.SessionPropertyDefaults;
+import io.prestosql.server.security.CertificateAuthenticatorManager;
 import io.prestosql.server.security.PasswordAuthenticatorManager;
 import io.prestosql.spi.PageIndexerFactory;
 import io.prestosql.spi.PageSorter;
@@ -169,7 +173,6 @@ import io.prestosql.transaction.InMemoryTransactionManager;
 import io.prestosql.transaction.TransactionManager;
 import io.prestosql.transaction.TransactionManagerConfig;
 import io.prestosql.util.FinalizerService;
-import io.prestosql.version.EmbedVersion;
 import org.intellij.lang.annotations.Language;
 import org.weakref.jmx.MBeanExporter;
 import org.weakref.jmx.testing.TestingMBeanServer;
@@ -207,6 +210,7 @@ import static io.prestosql.sql.testing.TreeAssertions.assertFormattedSql;
 import static io.prestosql.testing.TestingSession.TESTING_CATALOG;
 import static io.prestosql.testing.TestingSession.createBogusTestingCatalog;
 import static io.prestosql.transaction.TransactionBuilder.transaction;
+import static io.prestosql.version.EmbedVersion.testingVersionEmbedder;
 import static java.util.Objects.requireNonNull;
 import static java.util.concurrent.Executors.newCachedThreadPool;
 import static java.util.concurrent.Executors.newScheduledThreadPool;
@@ -214,6 +218,8 @@ import static java.util.concurrent.Executors.newScheduledThreadPool;
 public class LocalQueryRunner
         implements QueryRunner
 {
+    private final EventListenerManager eventListenerManager = new EventListenerManager(new EventListenerConfig());
+
     private final Session defaultSession;
     private final ExecutorService notificationExecutor;
     private final ScheduledExecutorService yieldExecutor;
@@ -275,7 +281,7 @@ public class LocalQueryRunner
     {
         requireNonNull(defaultSession, "defaultSession is null");
         requireNonNull(defaultSessionProperties, "defaultSessionProperties is null");
-        checkArgument(!defaultSession.getTransactionId().isPresent() || !withInitialTransaction, "Already in transaction");
+        checkArgument(defaultSession.getTransactionId().isEmpty() || !withInitialTransaction, "Already in transaction");
 
         this.taskManagerConfig = new TaskManagerConfig().setTaskConcurrency(4);
         this.nodeSpillConfig = requireNonNull(nodeSpillConfig, "nodeSpillConfig is null");
@@ -317,7 +323,8 @@ public class LocalQueryRunner
         this.taskCountEstimator = new TaskCountEstimator(() -> nodeCountForStats);
         this.costCalculator = new CostCalculatorUsingExchanges(taskCountEstimator);
         this.estimatedExchangesCostCalculator = new CostCalculatorWithEstimatedExchanges(costCalculator, taskCountEstimator);
-        this.accessControl = new TestingAccessControlManager(transactionManager);
+        this.accessControl = new TestingAccessControlManager(transactionManager, eventListenerManager);
+        accessControl.loadSystemAccessControl(AllowAllSystemAccessControl.NAME, ImmutableMap.of());
         this.pageSourceManager = new PageSourceManager();
 
         this.pageFunctionCompiler = new PageFunctionCompiler(metadata, 0);
@@ -337,10 +344,11 @@ public class LocalQueryRunner
                 new HandleResolver(),
                 nodeManager,
                 nodeInfo,
-                new EmbedVersion(new ServerConfig()),
+                testingVersionEmbedder(),
                 pageSorter,
                 pageIndexerFactory,
-                transactionManager);
+                transactionManager,
+                eventListenerManager);
 
         GlobalSystemConnectorFactory globalSystemConnectorFactory = new GlobalSystemConnectorFactory(ImmutableSet.of(
                 new NodeSystemTable(nodeManager),
@@ -361,7 +369,9 @@ public class LocalQueryRunner
                 new NoOpResourceGroupManager(),
                 accessControl,
                 new PasswordAuthenticatorManager(),
-                new EventListenerManager(),
+                new CertificateAuthenticatorManager(),
+                eventListenerManager,
+                new GroupProviderManager(),
                 new SessionPropertyDefaults(nodeInfo));
 
         connectorManager.addConnectorFactory(globalSystemConnectorFactory, globalSystemConnectorFactory.getClass()::getClassLoader);
@@ -390,7 +400,7 @@ public class LocalQueryRunner
                 defaultSession.getClientTags(),
                 defaultSession.getClientCapabilities(),
                 defaultSession.getResourceEstimates(),
-                defaultSession.getStartTime(),
+                defaultSession.getStart(),
                 defaultSession.getSystemProperties(),
                 defaultSession.getConnectorProperties(),
                 defaultSession.getUnprocessedCatalogProperties(),
@@ -430,6 +440,11 @@ public class LocalQueryRunner
         connectorManager.stop();
         finalizerService.destroy();
         singleStreamSpillerFactory.destroy();
+    }
+
+    public void loadEventListeners()
+    {
+        this.eventListenerManager.loadEventListeners();
     }
 
     @Override
@@ -530,6 +545,12 @@ public class LocalQueryRunner
     }
 
     @Override
+    public void addFunctions(List<? extends SqlFunction> functions)
+    {
+        metadata.addFunctions(functions);
+    }
+
+    @Override
     public void createCatalog(String catalogName, String connectorName, Map<String, String> properties)
     {
         throw new UnsupportedOperationException();
@@ -607,6 +628,7 @@ public class LocalQueryRunner
     {
         lock.readLock().lock();
         try (Closer closer = Closer.create()) {
+            accessControl.checkCanExecuteQuery(session.getIdentity());
             AtomicReference<MaterializedResult.Builder> builder = new AtomicReference<>();
             PageConsumerOutputFactory outputFactory = new PageConsumerOutputFactory(types -> {
                 builder.compareAndSet(null, MaterializedResult.resultBuilder(session, types));
@@ -628,7 +650,7 @@ public class LocalQueryRunner
                 for (Driver driver : drivers) {
                     if (alwaysRevokeMemory) {
                         driver.getDriverContext().getOperatorContexts().stream()
-                                .filter(operatorContext -> operatorContext.getOperatorStats().getRevocableMemoryReservation().getValue() > 0)
+                                .filter(operatorContext -> operatorContext.getOperatorStats().getRevocableMemoryReservation().toBytes() > 0)
                                 .forEach(OperatorContext::requestMemoryRevoking);
                     }
 

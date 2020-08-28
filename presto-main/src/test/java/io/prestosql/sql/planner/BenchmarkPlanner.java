@@ -15,12 +15,12 @@ package io.prestosql.sql.planner;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.io.Resources;
-import io.airlift.tpch.Customer;
 import io.prestosql.Session;
 import io.prestosql.execution.warnings.WarningCollector;
 import io.prestosql.plugin.tpch.ColumnNaming;
 import io.prestosql.plugin.tpch.TpchConnectorFactory;
 import io.prestosql.testing.LocalQueryRunner;
+import io.prestosql.tpch.Customer;
 import org.openjdk.jmh.annotations.Benchmark;
 import org.openjdk.jmh.annotations.BenchmarkMode;
 import org.openjdk.jmh.annotations.Fork;
@@ -127,7 +127,7 @@ public class BenchmarkPlanner
     }
 
     public static void main(String[] args)
-            throws Throwable
+            throws Exception
     {
         // assure the benchmarks are valid before running
         BenchmarkData data = new BenchmarkData();

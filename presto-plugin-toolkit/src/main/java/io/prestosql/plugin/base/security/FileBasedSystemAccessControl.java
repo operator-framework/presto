@@ -20,15 +20,19 @@ import io.airlift.units.Duration;
 import io.prestosql.plugin.base.security.CatalogAccessControlRule.AccessMode;
 import io.prestosql.spi.PrestoException;
 import io.prestosql.spi.connector.CatalogSchemaName;
+import io.prestosql.spi.connector.CatalogSchemaRoutineName;
 import io.prestosql.spi.connector.CatalogSchemaTableName;
 import io.prestosql.spi.connector.ColumnMetadata;
 import io.prestosql.spi.connector.SchemaTableName;
+import io.prestosql.spi.eventlistener.EventListener;
 import io.prestosql.spi.security.Identity;
 import io.prestosql.spi.security.PrestoPrincipal;
 import io.prestosql.spi.security.Privilege;
 import io.prestosql.spi.security.SystemAccessControl;
 import io.prestosql.spi.security.SystemAccessControlFactory;
 import io.prestosql.spi.security.SystemSecurityContext;
+import io.prestosql.spi.security.ViewExpression;
+import io.prestosql.spi.type.Type;
 
 import java.nio.file.Paths;
 import java.security.Principal;
@@ -40,6 +44,7 @@ import java.util.regex.Pattern;
 
 import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.base.Suppliers.memoizeWithExpiration;
+import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static io.prestosql.plugin.base.security.CatalogAccessControlRule.AccessMode.ALL;
 import static io.prestosql.plugin.base.security.CatalogAccessControlRule.AccessMode.READ_ONLY;
 import static io.prestosql.plugin.base.security.FileBasedAccessControlConfig.SECURITY_CONFIG_FILE;
@@ -59,13 +64,18 @@ import static io.prestosql.spi.security.AccessDeniedException.denyDropSchema;
 import static io.prestosql.spi.security.AccessDeniedException.denyDropTable;
 import static io.prestosql.spi.security.AccessDeniedException.denyDropView;
 import static io.prestosql.spi.security.AccessDeniedException.denyGrantTablePrivilege;
+import static io.prestosql.spi.security.AccessDeniedException.denyImpersonateUser;
 import static io.prestosql.spi.security.AccessDeniedException.denyInsertTable;
 import static io.prestosql.spi.security.AccessDeniedException.denyRenameColumn;
 import static io.prestosql.spi.security.AccessDeniedException.denyRenameSchema;
 import static io.prestosql.spi.security.AccessDeniedException.denyRenameTable;
 import static io.prestosql.spi.security.AccessDeniedException.denyRenameView;
 import static io.prestosql.spi.security.AccessDeniedException.denyRevokeTablePrivilege;
+import static io.prestosql.spi.security.AccessDeniedException.denySetSchemaAuthorization;
 import static io.prestosql.spi.security.AccessDeniedException.denySetUser;
+import static io.prestosql.spi.security.AccessDeniedException.denyShowCreateSchema;
+import static io.prestosql.spi.security.AccessDeniedException.denyShowCreateTable;
+import static io.prestosql.spi.security.AccessDeniedException.denyViewQuery;
 import static java.lang.String.format;
 import static java.util.Objects.requireNonNull;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
@@ -78,11 +88,19 @@ public class FileBasedSystemAccessControl
     public static final String NAME = "file";
 
     private final List<CatalogAccessControlRule> catalogRules;
+    private final Optional<List<QueryAccessRule>> queryAccessRules;
+    private final Optional<List<ImpersonationRule>> impersonationRules;
     private final Optional<List<PrincipalUserMatchRule>> principalUserMatchRules;
 
-    private FileBasedSystemAccessControl(List<CatalogAccessControlRule> catalogRules, Optional<List<PrincipalUserMatchRule>> principalUserMatchRules)
+    private FileBasedSystemAccessControl(
+            List<CatalogAccessControlRule> catalogRules,
+            Optional<List<QueryAccessRule>> queryAccessRules,
+            Optional<List<ImpersonationRule>> impersonationRules,
+            Optional<List<PrincipalUserMatchRule>> principalUserMatchRules)
     {
         this.catalogRules = catalogRules;
+        this.queryAccessRules = queryAccessRules;
+        this.impersonationRules = impersonationRules;
         this.principalUserMatchRules = principalUserMatchRules;
     }
 
@@ -144,10 +162,40 @@ public class FileBasedSystemAccessControl
             catalogRulesBuilder.add(new CatalogAccessControlRule(
                     ALL,
                     Optional.of(Pattern.compile(".*")),
+                    Optional.empty(),
                     Optional.of(Pattern.compile("system"))));
 
-            return new FileBasedSystemAccessControl(catalogRulesBuilder.build(), rules.getPrincipalUserMatchRules());
+            return new FileBasedSystemAccessControl(
+                    catalogRulesBuilder.build(),
+                    rules.getQueryAccessRules(),
+                    rules.getImpersonationRules(),
+                    rules.getPrincipalUserMatchRules());
         }
+    }
+
+    @Override
+    public void checkCanImpersonateUser(SystemSecurityContext context, String userName)
+    {
+        if (impersonationRules.isEmpty()) {
+            // if there are principal user match rules, we assume that impersonation checks are
+            // handled there; otherwise, impersonation must be manually configured
+            if (principalUserMatchRules.isEmpty()) {
+                denyImpersonateUser(context.getIdentity().getUser(), userName);
+            }
+            return;
+        }
+
+        for (ImpersonationRule rule : impersonationRules.get()) {
+            Optional<Boolean> allowed = rule.match(context.getIdentity().getUser(), userName);
+            if (allowed.isPresent()) {
+                if (allowed.get()) {
+                    return;
+                }
+                denyImpersonateUser(context.getIdentity().getUser(), userName);
+            }
+        }
+
+        denyImpersonateUser(context.getIdentity().getUser(), userName);
     }
 
     @Override
@@ -156,11 +204,11 @@ public class FileBasedSystemAccessControl
         requireNonNull(principal, "principal is null");
         requireNonNull(userName, "userName is null");
 
-        if (!principalUserMatchRules.isPresent()) {
+        if (principalUserMatchRules.isEmpty()) {
             return;
         }
 
-        if (!principal.isPresent()) {
+        if (principal.isEmpty()) {
             denySetUser(principal, userName);
         }
 
@@ -177,6 +225,64 @@ public class FileBasedSystemAccessControl
         }
 
         denySetUser(principal, userName);
+    }
+
+    @Override
+    public void checkCanExecuteQuery(SystemSecurityContext context)
+    {
+        if (queryAccessRules.isEmpty()) {
+            return;
+        }
+        if (!canAccessQuery(context.getIdentity(), QueryAccessRule.AccessMode.EXECUTE)) {
+            denyViewQuery();
+        }
+    }
+
+    @Override
+    public void checkCanViewQueryOwnedBy(SystemSecurityContext context, String queryOwner)
+    {
+        if (queryAccessRules.isEmpty()) {
+            return;
+        }
+        if (!canAccessQuery(context.getIdentity(), QueryAccessRule.AccessMode.VIEW)) {
+            denyViewQuery();
+        }
+    }
+
+    @Override
+    public Set<String> filterViewQueryOwnedBy(SystemSecurityContext context, Set<String> queryOwners)
+    {
+        if (queryAccessRules.isEmpty()) {
+            return queryOwners;
+        }
+        Identity identity = context.getIdentity();
+        return queryOwners.stream()
+                .filter(owner -> canAccessQuery(identity, QueryAccessRule.AccessMode.VIEW))
+                .collect(toImmutableSet());
+    }
+
+    @Override
+    public void checkCanKillQueryOwnedBy(SystemSecurityContext context, String queryOwner)
+    {
+        if (queryAccessRules.isEmpty()) {
+            return;
+        }
+        if (!canAccessQuery(context.getIdentity(), QueryAccessRule.AccessMode.KILL)) {
+            denyViewQuery();
+        }
+    }
+
+    private boolean canAccessQuery(Identity identity, QueryAccessRule.AccessMode requiredAccess)
+    {
+        if (queryAccessRules.isPresent()) {
+            for (QueryAccessRule rule : queryAccessRules.get()) {
+                Optional<Set<QueryAccessRule.AccessMode>> accessMode = rule.match(identity.getUser());
+                if (accessMode.isPresent()) {
+                    return accessMode.get().contains(requiredAccess);
+                }
+            }
+        }
+        return false;
     }
 
     @Override
@@ -207,7 +313,7 @@ public class FileBasedSystemAccessControl
     private boolean canAccessCatalog(Identity identity, String catalogName, AccessMode requiredAccess)
     {
         for (CatalogAccessControlRule rule : catalogRules) {
-            Optional<AccessMode> accessMode = rule.match(identity.getUser(), catalogName);
+            Optional<AccessMode> accessMode = rule.match(identity.getUser(), identity.getGroups(), catalogName);
             if (accessMode.isPresent()) {
                 return accessMode.get().implies(requiredAccess);
             }
@@ -240,6 +346,14 @@ public class FileBasedSystemAccessControl
     }
 
     @Override
+    public void checkCanSetSchemaAuthorization(SystemSecurityContext context, CatalogSchemaName schema, PrestoPrincipal principal)
+    {
+        if (!canAccessCatalog(context.getIdentity(), schema.getCatalogName(), ALL)) {
+            denySetSchemaAuthorization(schema.toString(), principal);
+        }
+    }
+
+    @Override
     public void checkCanShowSchemas(SystemSecurityContext context, String catalogName)
     {
     }
@@ -252,6 +366,22 @@ public class FileBasedSystemAccessControl
         }
 
         return schemaNames;
+    }
+
+    @Override
+    public void checkCanShowCreateTable(SystemSecurityContext context, CatalogSchemaTableName table)
+    {
+        if (!canAccessCatalog(context.getIdentity(), table.getCatalogName(), ALL)) {
+            denyShowCreateTable(table.toString());
+        }
+    }
+
+    @Override
+    public void checkCanShowCreateSchema(SystemSecurityContext context, CatalogSchemaName schemaName)
+    {
+        if (!canAccessCatalog(context.getIdentity(), schemaName.getCatalogName(), ALL)) {
+            denyShowCreateSchema(schemaName.toString());
+        }
     }
 
     @Override
@@ -287,7 +417,7 @@ public class FileBasedSystemAccessControl
     }
 
     @Override
-    public void checkCanShowTablesMetadata(SystemSecurityContext context, CatalogSchemaName schema)
+    public void checkCanShowTables(SystemSecurityContext context, CatalogSchemaName schema)
     {
     }
 
@@ -302,7 +432,7 @@ public class FileBasedSystemAccessControl
     }
 
     @Override
-    public void checkCanShowColumnsMetadata(SystemSecurityContext context, CatalogSchemaTableName table)
+    public void checkCanShowColumns(SystemSecurityContext context, CatalogSchemaTableName table)
     {
     }
 
@@ -394,12 +524,17 @@ public class FileBasedSystemAccessControl
     }
 
     @Override
+    public void checkCanGrantExecuteFunctionPrivilege(SystemSecurityContext context, String functionName, PrestoPrincipal grantee, boolean grantOption)
+    {
+    }
+
+    @Override
     public void checkCanSetCatalogSessionProperty(SystemSecurityContext context, String catalogName, String propertyName)
     {
     }
 
     @Override
-    public void checkCanGrantTablePrivilege(SystemSecurityContext context, Privilege privilege, CatalogSchemaTableName table, PrestoPrincipal grantee, boolean withGrantOption)
+    public void checkCanGrantTablePrivilege(SystemSecurityContext context, Privilege privilege, CatalogSchemaTableName table, PrestoPrincipal grantee, boolean grantOption)
     {
         if (!canAccessCatalog(context.getIdentity(), table.getCatalogName(), ALL)) {
             denyGrantTablePrivilege(privilege.toString(), table.toString());
@@ -407,7 +542,7 @@ public class FileBasedSystemAccessControl
     }
 
     @Override
-    public void checkCanRevokeTablePrivilege(SystemSecurityContext context, Privilege privilege, CatalogSchemaTableName table, PrestoPrincipal revokee, boolean grantOptionFor)
+    public void checkCanRevokeTablePrivilege(SystemSecurityContext context, Privilege privilege, CatalogSchemaTableName table, PrestoPrincipal revokee, boolean grantOption)
     {
         if (!canAccessCatalog(context.getIdentity(), table.getCatalogName(), ALL)) {
             denyRevokeTablePrivilege(privilege.toString(), table.toString());
@@ -417,5 +552,33 @@ public class FileBasedSystemAccessControl
     @Override
     public void checkCanShowRoles(SystemSecurityContext context, String catalogName)
     {
+    }
+
+    @Override
+    public void checkCanExecuteProcedure(SystemSecurityContext systemSecurityContext, CatalogSchemaRoutineName procedure)
+    {
+    }
+
+    @Override
+    public void checkCanExecuteFunction(SystemSecurityContext systemSecurityContext, String functionName)
+    {
+    }
+
+    @Override
+    public Iterable<EventListener> getEventListeners()
+    {
+        return ImmutableSet.of();
+    }
+
+    @Override
+    public Optional<ViewExpression> getRowFilter(SystemSecurityContext context, CatalogSchemaTableName tableName)
+    {
+        return Optional.empty();
+    }
+
+    @Override
+    public Optional<ViewExpression> getColumnMask(SystemSecurityContext context, CatalogSchemaTableName tableName, String columnName, Type type)
+    {
+        return Optional.empty();
     }
 }

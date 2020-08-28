@@ -218,7 +218,7 @@ public class AccumuloClient
     {
         // Validate any configured locality groups
         Optional<Map<String, Set<String>>> groups = AccumuloTableProperties.getLocalityGroups(meta.getProperties());
-        if (!groups.isPresent()) {
+        if (groups.isEmpty()) {
             return;
         }
 
@@ -336,7 +336,7 @@ public class AccumuloClient
     private void setLocalityGroups(Map<String, Object> tableProperties, AccumuloTable table)
     {
         Optional<Map<String, Set<String>>> groups = AccumuloTableProperties.getLocalityGroups(tableProperties);
-        if (!groups.isPresent()) {
+        if (groups.isEmpty()) {
             LOG.debug("No locality groups to set");
             return;
         }
@@ -487,11 +487,11 @@ public class AccumuloClient
 
         // Validate table existence
         if (!tableManager.exists(oldTable.getFullTableName())) {
-            throw new PrestoException(ACCUMULO_TABLE_DNE, format("Table %s does not exist", oldTable.getFullTableName()));
+            throw new PrestoException(ACCUMULO_TABLE_DNE, format("Table '%s' does not exist", oldTable.getFullTableName()));
         }
 
         if (tableManager.exists(newTable.getFullTableName())) {
-            throw new PrestoException(ACCUMULO_TABLE_EXISTS, format("Table %s already exists", newTable.getFullTableName()));
+            throw new PrestoException(ACCUMULO_TABLE_EXISTS, format("Table '%s' already exists", newTable.getFullTableName()));
         }
 
         // Rename index tables (which will also validate table existence)
@@ -518,19 +518,19 @@ public class AccumuloClient
         }
 
         if (!tableManager.exists(oldTable.getIndexTableName())) {
-            throw new PrestoException(ACCUMULO_TABLE_DNE, format("Table %s does not exist", oldTable.getIndexTableName()));
+            throw new PrestoException(ACCUMULO_TABLE_DNE, format("Table '%s' does not exist", oldTable.getIndexTableName()));
         }
 
         if (tableManager.exists(newTable.getIndexTableName())) {
-            throw new PrestoException(ACCUMULO_TABLE_EXISTS, format("Table %s already exists", newTable.getIndexTableName()));
+            throw new PrestoException(ACCUMULO_TABLE_EXISTS, format("Table '%s' already exists", newTable.getIndexTableName()));
         }
 
         if (!tableManager.exists(oldTable.getMetricsTableName())) {
-            throw new PrestoException(ACCUMULO_TABLE_DNE, format("Table %s does not exist", oldTable.getMetricsTableName()));
+            throw new PrestoException(ACCUMULO_TABLE_DNE, format("Table '%s' does not exist", oldTable.getMetricsTableName()));
         }
 
         if (tableManager.exists(newTable.getMetricsTableName())) {
-            throw new PrestoException(ACCUMULO_TABLE_EXISTS, format("Table %s already exists", newTable.getMetricsTableName()));
+            throw new PrestoException(ACCUMULO_TABLE_EXISTS, format("Table '%s' already exists", newTable.getMetricsTableName()));
         }
 
         tableManager.renameAccumuloTable(oldTable.getIndexTableName(), newTable.getIndexTableName());
@@ -896,7 +896,7 @@ public class AccumuloClient
             throws TableNotFoundException
     {
         // if we have no predicate pushdown, use the full range
-        if (!domain.isPresent()) {
+        if (domain.isEmpty()) {
             return ImmutableSet.of(new Range());
         }
 

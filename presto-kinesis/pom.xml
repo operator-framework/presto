@@ -4,7 +4,7 @@
     <parent>
         <groupId>io.prestosql</groupId>
         <artifactId>presto-root</artifactId>
-        <version>328</version>
+        <version>334</version>
     </parent>
 
     <artifactId>presto-kinesis</artifactId>
@@ -13,9 +13,6 @@
 
     <properties>
         <air.main.basedir>${project.parent.basedir}</air.main.basedir>
-        <!--TODO: move to latest aws version-->
-        <dep.aws-sdk.version>1.11.12</dep.aws-sdk.version>
-
     </properties>
 
     <dependencies>
@@ -116,18 +113,6 @@
                 <exclusion>
                     <groupId>commons-logging</groupId>
                     <artifactId>commons-logging</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>com.fasterxml.jackson.core</groupId>
-                    <artifactId>jackson-databind</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>com.fasterxml.jackson.core</groupId>
-                    <artifactId>jackson-annotations</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>com.fasterxml.jackson.core</groupId>
-                    <artifactId>jackson-core</artifactId>
                 </exclusion>
             </exclusions>
         </dependency>

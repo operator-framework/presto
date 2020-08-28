@@ -22,6 +22,8 @@ import com.google.inject.multibindings.MapBinder;
 import io.airlift.concurrent.BoundedExecutor;
 import io.airlift.configuration.AbstractConfigurationAwareModule;
 import io.airlift.discovery.server.EmbeddedDiscoveryModule;
+import io.airlift.http.server.HttpServerConfig;
+import io.airlift.units.DataSize;
 import io.airlift.units.Duration;
 import io.prestosql.client.QueryResults;
 import io.prestosql.cost.CostCalculator;
@@ -35,7 +37,6 @@ import io.prestosql.cost.TaskCountEstimator;
 import io.prestosql.dispatcher.DispatchExecutor;
 import io.prestosql.dispatcher.DispatchManager;
 import io.prestosql.dispatcher.DispatchQueryFactory;
-import io.prestosql.dispatcher.DispatcherConfig;
 import io.prestosql.dispatcher.FailedDispatchQueryFactory;
 import io.prestosql.dispatcher.LocalDispatchQueryFactory;
 import io.prestosql.dispatcher.QueuedStatementResource;
@@ -80,6 +81,7 @@ import io.prestosql.execution.RevokeTask;
 import io.prestosql.execution.RollbackTask;
 import io.prestosql.execution.SetPathTask;
 import io.prestosql.execution.SetRoleTask;
+import io.prestosql.execution.SetSchemaAuthorizationTask;
 import io.prestosql.execution.SetSessionTask;
 import io.prestosql.execution.SqlQueryManager;
 import io.prestosql.execution.StartTransactionTask;
@@ -106,6 +108,8 @@ import io.prestosql.metadata.CatalogManager;
 import io.prestosql.operator.ForScheduler;
 import io.prestosql.server.protocol.ExecutingStatementResource;
 import io.prestosql.server.remotetask.RemoteTaskStats;
+import io.prestosql.server.ui.WebUiModule;
+import io.prestosql.server.ui.WorkerResource;
 import io.prestosql.spi.memory.ClusterMemoryPoolManager;
 import io.prestosql.spi.resourcegroups.QueryType;
 import io.prestosql.spi.security.SelectedRole;
@@ -139,6 +143,7 @@ import io.prestosql.sql.tree.RevokeRoles;
 import io.prestosql.sql.tree.Rollback;
 import io.prestosql.sql.tree.SetPath;
 import io.prestosql.sql.tree.SetRole;
+import io.prestosql.sql.tree.SetSchemaAuthorization;
 import io.prestosql.sql.tree.SetSession;
 import io.prestosql.sql.tree.StartTransaction;
 import io.prestosql.sql.tree.Statement;
@@ -147,6 +152,7 @@ import io.prestosql.transaction.ForTransactionManager;
 import io.prestosql.transaction.InMemoryTransactionManager;
 import io.prestosql.transaction.TransactionManager;
 import io.prestosql.transaction.TransactionManagerConfig;
+import io.prestosql.version.EmbedVersion;
 
 import javax.annotation.PreDestroy;
 import javax.inject.Inject;
@@ -164,9 +170,9 @@ import static io.airlift.configuration.ConditionalModule.installModuleIf;
 import static io.airlift.configuration.ConfigBinder.configBinder;
 import static io.airlift.discovery.client.DiscoveryBinder.discoveryBinder;
 import static io.airlift.http.client.HttpClientBinder.httpClientBinder;
-import static io.airlift.http.server.HttpServerBinder.httpServerBinder;
 import static io.airlift.jaxrs.JaxrsBinder.jaxrsBinder;
 import static io.airlift.json.JsonCodecBinder.jsonCodecBinder;
+import static io.airlift.units.DataSize.Unit.MEGABYTE;
 import static io.prestosql.execution.DataDefinitionExecution.DataDefinitionExecutionFactory;
 import static io.prestosql.execution.QueryExecution.QueryExecutionFactory;
 import static io.prestosql.execution.SqlQueryExecution.SqlQueryExecutionFactory;
@@ -183,8 +189,7 @@ public class CoordinatorModule
     @Override
     protected void setup(Binder binder)
     {
-        httpServerBinder(binder).bindResource("/ui", "webapp").withWelcomeFile("index.html");
-        httpServerBinder(binder).bindResource("/tableau", "webapp/tableau");
+        install(new WebUiModule());
 
         // discovery server
         install(installModuleIf(EmbeddedDiscoveryConfig.class, EmbeddedDiscoveryConfig::isEnabled, new EmbeddedDiscoveryModule()));
@@ -197,14 +202,16 @@ public class CoordinatorModule
         jsonCodecBinder(binder).bindJsonCodec(TaskInfo.class);
         jsonCodecBinder(binder).bindJsonCodec(QueryResults.class);
         jsonCodecBinder(binder).bindJsonCodec(SelectedRole.class);
-        configBinder(binder).bindConfig(DispatcherConfig.class);
         jaxrsBinder(binder).bind(QueuedStatementResource.class);
         jaxrsBinder(binder).bind(ExecutingStatementResource.class);
         binder.bind(StatementHttpExecutionMBean.class).in(Scopes.SINGLETON);
         newExporter(binder).export(StatementHttpExecutionMBean.class).withGeneratedName();
 
-        // resource for serving static content
-        jaxrsBinder(binder).bind(WebUiResource.class);
+        // allow large prepared statements in headers
+        configBinder(binder).bindConfigDefaults(HttpServerConfig.class, config -> {
+            config.setMaxRequestHeaderSize(DataSize.of(2, MEGABYTE));
+            config.setMaxResponseHeaderSize(DataSize.of(2, MEGABYTE));
+        });
 
         // failure detector
         binder.install(new FailureDetectorModule());
@@ -255,6 +262,7 @@ public class CoordinatorModule
 
         // node monitor
         binder.bind(ClusterSizeMonitor.class).in(Scopes.SINGLETON);
+        newExporter(binder).export(ClusterSizeMonitor.class).withGeneratedName();
 
         // statistics calculator
         binder.install(new StatsCalculatorModule());
@@ -264,9 +272,6 @@ public class CoordinatorModule
         binder.bind(CostCalculator.class).to(CostCalculatorUsingExchanges.class).in(Scopes.SINGLETON);
         binder.bind(CostCalculator.class).annotatedWith(EstimatedExchanges.class).to(CostCalculatorWithEstimatedExchanges.class).in(Scopes.SINGLETON);
         binder.bind(CostComparator.class).in(Scopes.SINGLETON);
-
-        // cluster statistics
-        jaxrsBinder(binder).bind(ClusterStatsResource.class);
 
         // planner
         binder.bind(PlanFragmenter.class).in(Scopes.SINGLETON);
@@ -319,6 +324,7 @@ public class CoordinatorModule
         bindDataDefinitionTask(binder, executionBinder, CreateSchema.class, CreateSchemaTask.class);
         bindDataDefinitionTask(binder, executionBinder, DropSchema.class, DropSchemaTask.class);
         bindDataDefinitionTask(binder, executionBinder, RenameSchema.class, RenameSchemaTask.class);
+        bindDataDefinitionTask(binder, executionBinder, SetSchemaAuthorization.class, SetSchemaAuthorizationTask.class);
         bindDataDefinitionTask(binder, executionBinder, AddColumn.class, AddColumnTask.class);
         bindDataDefinitionTask(binder, executionBinder, CreateTable.class, CreateTableTask.class);
         bindDataDefinitionTask(binder, executionBinder, RenameTable.class, RenameTableTask.class);
@@ -414,10 +420,11 @@ public class CoordinatorModule
     public static TransactionManager createTransactionManager(
             TransactionManagerConfig config,
             CatalogManager catalogManager,
+            EmbedVersion embedVersion,
             @ForTransactionManager ScheduledExecutorService idleCheckExecutor,
             @ForTransactionManager ExecutorService finishingExecutor)
     {
-        return InMemoryTransactionManager.create(config, idleCheckExecutor, catalogManager, finishingExecutor);
+        return InMemoryTransactionManager.create(config, idleCheckExecutor, catalogManager, embedVersion.embedVersion(finishingExecutor));
     }
 
     private static <T extends Statement> void bindDataDefinitionTask(

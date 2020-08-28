@@ -57,6 +57,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
@@ -126,6 +127,7 @@ public final class OrcWriter
             OrcDataSink orcDataSink,
             List<String> columnNames,
             List<Type> types,
+            ColumnMetadata<OrcType> orcTypes,
             CompressionKind compression,
             OrcWriterOptions options,
             boolean writeLegacyVersion,
@@ -163,7 +165,7 @@ public final class OrcWriter
         this.stats = requireNonNull(stats, "stats is null");
 
         requireNonNull(columnNames, "columnNames is null");
-        this.orcTypes = OrcType.createRootOrcType(columnNames, types);
+        this.orcTypes = requireNonNull(orcTypes, "orcTypes is null");
         recordValidation(validation -> validation.setColumnNames(columnNames));
 
         // create column writers
@@ -444,9 +446,9 @@ public final class OrcWriter
         stats.updateSizeInBytes(-previouslyRecordedSizeInBytes);
         previouslyRecordedSizeInBytes = 0;
 
-        flushStripe(CLOSED);
-
-        orcDataSink.close();
+        try (Closeable ignored = orcDataSink) {
+            flushStripe(CLOSED);
+        }
     }
 
     /**
@@ -480,7 +482,7 @@ public final class OrcWriter
 
         Footer footer = new Footer(
                 numberOfRows,
-                rowGroupMaxRowCount,
+                rowGroupMaxRowCount == 0 ? OptionalInt.empty() : OptionalInt.of(rowGroupMaxRowCount),
                 closedStripes.stream()
                         .map(ClosedStripe::getStripeInformation)
                         .collect(toImmutableList()),

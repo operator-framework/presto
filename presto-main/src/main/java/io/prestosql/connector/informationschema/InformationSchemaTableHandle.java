@@ -23,6 +23,7 @@ import java.util.Objects;
 import java.util.OptionalLong;
 import java.util.Set;
 
+import static com.google.common.base.MoreObjects.toStringHelper;
 import static java.util.Objects.requireNonNull;
 
 public class InformationSchemaTableHandle
@@ -73,13 +74,18 @@ public class InformationSchemaTableHandle
     @Override
     public String toString()
     {
-        return catalogName + '.' + table.getSchemaTableName().toString();
+        return toStringHelper(this)
+                .add("catalogName", catalogName)
+                .add("table", table)
+                .add("prefixes", prefixes)
+                .add("limit", limit)
+                .toString();
     }
 
     @Override
     public int hashCode()
     {
-        return Objects.hash(catalogName, table);
+        return Objects.hash(catalogName, table, prefixes, limit);
     }
 
     @Override
@@ -93,6 +99,8 @@ public class InformationSchemaTableHandle
         }
         InformationSchemaTableHandle other = (InformationSchemaTableHandle) obj;
         return Objects.equals(this.catalogName, other.catalogName) &&
-                Objects.equals(this.table, other.table);
+                this.table == other.table &&
+                Objects.equals(this.prefixes, other.prefixes) &&
+                Objects.equals(this.limit, other.limit);
     }
 }

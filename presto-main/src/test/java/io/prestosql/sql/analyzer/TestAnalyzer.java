@@ -119,6 +119,7 @@ import static io.prestosql.spi.type.TinyintType.TINYINT;
 import static io.prestosql.spi.type.VarcharType.VARCHAR;
 import static io.prestosql.spi.type.VarcharType.createUnboundedVarcharType;
 import static io.prestosql.spi.type.VarcharType.createVarcharType;
+import static io.prestosql.testing.TestingEventListenerManager.emptyEventListenerManager;
 import static io.prestosql.testing.TestingSession.testSessionBuilder;
 import static io.prestosql.testing.assertions.PrestoExceptionAssert.assertPrestoExceptionThrownBy;
 import static io.prestosql.transaction.InMemoryTransactionManager.createTestTransactionManager;
@@ -2030,7 +2031,10 @@ public class TestAnalyzer
     {
         CatalogManager catalogManager = new CatalogManager();
         transactionManager = createTestTransactionManager(catalogManager);
-        accessControl = new AccessControlManager(transactionManager, new AccessControlConfig());
+        accessControl = new AccessControlManager(
+                transactionManager,
+                emptyEventListenerManager(),
+                new AccessControlConfig());
 
         metadata = createTestMetadataManager(transactionManager, new FeaturesConfig());
         metadata.addFunctions(ImmutableList.of(APPLY_FUNCTION));
@@ -2108,6 +2112,7 @@ public class TestAnalyzer
                 Optional.of(TPCH_CATALOG),
                 Optional.of("s1"),
                 ImmutableList.of(new ViewColumn("a", BIGINT.getTypeId())),
+                Optional.of("comment"),
                 Optional.of("user"),
                 false);
         inSetupTransaction(session -> metadata.createView(session, new QualifiedObjectName(TPCH_CATALOG, "s1", "v1"), viewData1, false));
@@ -2118,6 +2123,7 @@ public class TestAnalyzer
                 Optional.of(TPCH_CATALOG),
                 Optional.of("s1"),
                 ImmutableList.of(new ViewColumn("a", VARCHAR.getTypeId())),
+                Optional.of("comment"),
                 Optional.of("user"),
                 false);
         inSetupTransaction(session -> metadata.createView(session, new QualifiedObjectName(TPCH_CATALOG, "s1", "v2"), viewData2, false));
@@ -2128,6 +2134,7 @@ public class TestAnalyzer
                 Optional.of(SECOND_CATALOG),
                 Optional.of("s2"),
                 ImmutableList.of(new ViewColumn("a", BIGINT.getTypeId())),
+                Optional.of("comment"),
                 Optional.of("owner"),
                 false);
         inSetupTransaction(session -> metadata.createView(session, new QualifiedObjectName(THIRD_CATALOG, "s3", "v3"), viewData3, false));
@@ -2138,6 +2145,7 @@ public class TestAnalyzer
                 Optional.of("tpch"),
                 Optional.of("s1"),
                 ImmutableList.of(new ViewColumn("a", BIGINT.getTypeId())),
+                Optional.of("comment"),
                 Optional.of("user"),
                 false);
         inSetupTransaction(session -> metadata.createView(session, new QualifiedObjectName("tpch", "s1", "v4"), viewData4, false));
@@ -2148,6 +2156,7 @@ public class TestAnalyzer
                 Optional.of(TPCH_CATALOG),
                 Optional.of("s1"),
                 ImmutableList.of(new ViewColumn("a", BIGINT.getTypeId())),
+                Optional.of("comment"),
                 Optional.of("user"),
                 false);
         inSetupTransaction(session -> metadata.createView(session, new QualifiedObjectName(TPCH_CATALOG, "s1", "v5"), viewData5, false));

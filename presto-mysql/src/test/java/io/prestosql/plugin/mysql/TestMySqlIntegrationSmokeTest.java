@@ -22,22 +22,22 @@ import org.intellij.lang.annotations.Language;
 import org.testng.annotations.AfterClass;
 import org.testng.annotations.Test;
 
-import java.util.List;
-
 import static com.google.common.collect.Iterables.getOnlyElement;
-import static io.airlift.tpch.TpchTable.ORDERS;
 import static io.prestosql.plugin.mysql.MySqlQueryRunner.createMySqlQueryRunner;
 import static io.prestosql.spi.type.VarcharType.VARCHAR;
+import static io.prestosql.testing.MaterializedResult.resultBuilder;
 import static io.prestosql.testing.TestingSession.testSessionBuilder;
 import static io.prestosql.testing.assertions.Assert.assertEquals;
+import static io.prestosql.tpch.TpchTable.ORDERS;
 import static java.lang.String.format;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertTrue;
 
 public class TestMySqlIntegrationSmokeTest
         extends AbstractTestIntegrationSmokeTest
 {
-    private TestingMySqlServer mysqlServer;
+    protected TestingMySqlServer mysqlServer;
 
     @Override
     protected QueryRunner createQueryRunner()
@@ -53,13 +53,11 @@ public class TestMySqlIntegrationSmokeTest
         mysqlServer.close();
     }
 
+    @Test
     @Override
     public void testDescribeTable()
     {
-        // we need specific implementation of this tests due to specific Presto<->Mysql varchar length mapping.
-        MaterializedResult actualColumns = computeActual("DESC ORDERS").toTestTypes();
-
-        MaterializedResult expectedColumns = MaterializedResult.resultBuilder(getQueryRunner().getDefaultSession(), VARCHAR, VARCHAR, VARCHAR, VARCHAR)
+        MaterializedResult expectedColumns = resultBuilder(getQueryRunner().getDefaultSession(), VARCHAR, VARCHAR, VARCHAR, VARCHAR)
                 .row("orderkey", "bigint", "", "")
                 .row("custkey", "bigint", "", "")
                 .row("orderstatus", "varchar(255)", "", "")
@@ -70,7 +68,25 @@ public class TestMySqlIntegrationSmokeTest
                 .row("shippriority", "integer", "", "")
                 .row("comment", "varchar(255)", "", "")
                 .build();
+        MaterializedResult actualColumns = computeActual("DESCRIBE orders");
         assertEquals(actualColumns, expectedColumns);
+    }
+
+    @Override
+    public void testShowCreateTable()
+    {
+        assertThat(computeActual("SHOW CREATE TABLE orders").getOnlyValue())
+                .isEqualTo("CREATE TABLE mysql.tpch.orders (\n" +
+                        "   orderkey bigint,\n" +
+                        "   custkey bigint,\n" +
+                        "   orderstatus varchar(255),\n" +
+                        "   totalprice double,\n" +
+                        "   orderdate date,\n" +
+                        "   orderpriority varchar(255),\n" +
+                        "   clerk varchar(255),\n" +
+                        "   shippriority integer,\n" +
+                        "   comment varchar(255)\n" +
+                        ")");
     }
 
     @Test
@@ -180,8 +196,8 @@ public class TestMySqlIntegrationSmokeTest
         assertUpdate(createTableSql);
         assertEquals(computeScalar("SHOW CREATE TABLE test_insert_not_null"), createTableSql);
 
-        assertQueryFails("INSERT INTO test_insert_not_null (column_a) VALUES (date '2012-12-31')", "Column 'column_b' cannot be null");
-        assertQueryFails("INSERT INTO test_insert_not_null (column_a, column_b) VALUES (date '2012-12-31', null)", "Column 'column_b' cannot be null");
+        assertQueryFails("INSERT INTO test_insert_not_null (column_a) VALUES (date '2012-12-31')", "Failed to insert data: Field 'column_b' doesn't have a default value");
+        assertQueryFails("INSERT INTO test_insert_not_null (column_a, column_b) VALUES (date '2012-12-31', null)", "Failed to insert data: Column 'column_b' cannot be null");
 
         assertUpdate("ALTER TABLE test_insert_not_null ADD COLUMN column_c BIGINT NOT NULL");
 
@@ -194,8 +210,8 @@ public class TestMySqlIntegrationSmokeTest
                 getSession().getCatalog().get());
         assertEquals(computeScalar("SHOW CREATE TABLE test_insert_not_null"), createTableSql);
 
-        assertQueryFails("INSERT INTO test_insert_not_null (column_b) VALUES (date '2012-12-31')", "Column 'column_c' cannot be null");
-        assertQueryFails("INSERT INTO test_insert_not_null (column_b, column_c) VALUES (date '2012-12-31', null)", "Column 'column_c' cannot be null");
+        assertQueryFails("INSERT INTO test_insert_not_null (column_b) VALUES (date '2012-12-31')", "Failed to insert data: Field 'column_c' doesn't have a default value");
+        assertQueryFails("INSERT INTO test_insert_not_null (column_b, column_c) VALUES (date '2012-12-31', null)", "Failed to insert data: Column 'column_c' cannot be null");
 
         assertUpdate("INSERT INTO test_insert_not_null (column_b, column_c) VALUES (date '2012-12-31', 1)", 1);
         assertUpdate("INSERT INTO test_insert_not_null (column_a, column_b, column_c) VALUES (date '2013-01-01', date '2013-01-02', 2)", 1);
@@ -204,20 +220,6 @@ public class TestMySqlIntegrationSmokeTest
                 "VALUES (NULL, CAST('2012-12-31' AS DATE), 1), (CAST('2013-01-01' AS DATE), CAST('2013-01-02' AS DATE), 2)");
 
         assertUpdate("DROP TABLE test_insert_not_null");
-    }
-
-    @Override
-    protected boolean canDropSchema()
-    {
-        return false;
-    }
-
-    @Override
-    protected void cleanUpSchemas(List<String> schemaNames)
-    {
-        for (String schemaName : schemaNames) {
-            execute("DROP SCHEMA " + schemaName);
-        }
     }
 
     @Test

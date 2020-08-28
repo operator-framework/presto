@@ -13,6 +13,7 @@
  */
 package io.prestosql.server;
 
+import com.google.common.base.Splitter;
 import com.google.common.collect.AbstractSequentialIterator;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -21,7 +22,7 @@ import io.airlift.http.client.FullJsonResponseHandler.JsonResponse;
 import io.airlift.http.client.HttpClient;
 import io.airlift.http.client.HttpUriBuilder;
 import io.airlift.http.client.Request;
-import io.airlift.http.client.StatusResponseHandler;
+import io.airlift.http.client.StatusResponseHandler.StatusResponse;
 import io.airlift.http.client.jetty.JettyHttpClient;
 import io.airlift.json.JsonCodec;
 import io.prestosql.client.QueryError;
@@ -43,8 +44,14 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import static com.google.common.base.Preconditions.checkState;
+import static com.google.common.base.Throwables.getStackTraceAsString;
+import static com.google.common.net.HttpHeaders.CONTENT_TYPE;
+import static com.google.common.net.HttpHeaders.X_FORWARDED_HOST;
+import static com.google.common.net.HttpHeaders.X_FORWARDED_PORT;
+import static com.google.common.net.HttpHeaders.X_FORWARDED_PROTO;
 import static io.airlift.http.client.FullJsonResponseHandler.createFullJsonResponseHandler;
 import static io.airlift.http.client.Request.Builder.prepareGet;
+import static io.airlift.http.client.Request.Builder.prepareHead;
 import static io.airlift.http.client.Request.Builder.preparePost;
 import static io.airlift.http.client.StaticBodyGenerator.createStaticBodyGenerator;
 import static io.airlift.http.client.StatusResponseHandler.createStatusResponseHandler;
@@ -67,8 +74,9 @@ import static io.prestosql.client.PrestoHeaders.PRESTO_USER;
 import static io.prestosql.spi.StandardErrorCode.INCOMPATIBLE_CLIENT;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Objects.requireNonNull;
+import static javax.ws.rs.core.MediaType.APPLICATION_JSON;
 import static javax.ws.rs.core.Response.Status.OK;
-import static org.assertj.core.api.Assertions.assertThat;
+import static javax.ws.rs.core.Response.Status.SEE_OTHER;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertNotNull;
 import static org.testng.Assert.assertNull;
@@ -82,7 +90,11 @@ public class TestServer
     @BeforeClass
     public void setup()
     {
-        server = new TestingPrestoServer();
+        server = TestingPrestoServer.builder()
+                .setProperties(ImmutableMap.<String, String>builder()
+                        .put("http-server.process-forwarded", "true")
+                        .build())
+                .build();
         client = new JettyHttpClient();
     }
 
@@ -118,8 +130,8 @@ public class TestServer
     @Test
     public void testServerStarts()
     {
-        StatusResponseHandler.StatusResponse response = client.execute(
-                prepareGet().setUri(server.resolve("/v1/query")).build(),
+        StatusResponse response = client.execute(
+                prepareGet().setUri(server.resolve("/v1/info")).build(),
                 createStatusResponseHandler());
 
         assertEquals(response.getStatusCode(), OK.getStatusCode());
@@ -206,8 +218,11 @@ public class TestServer
 
         assertNull(queryResults.getNextUri());
         QueryError queryError = queryResults.getError();
-        assertThat(queryError.getFailureInfo().toException())
-                .hasStackTraceContaining("at io.prestosql.$gen.Presto_null__testversion____");
+        List<String> stackTrace = Splitter.on("\n").splitToList(getStackTraceAsString(queryError.getFailureInfo().toException()));
+        long versionLines = stackTrace.stream()
+                .filter(line -> line.contains("at io.prestosql.$gen.Presto_testversion____"))
+                .count();
+        assertEquals(versionLines, 1, "Number of times version is embedded in stacktrace");
     }
 
     @DataProvider
@@ -219,6 +234,42 @@ public class TestServer
                 {"SELECT 1 / 0"}, // fails during optimization
                 {"select 1 / a from (values 0) t(a)"}, // fails during execution
         };
+    }
+
+    @Test
+    public void testStatusPing()
+    {
+        Request request = prepareHead()
+                .setUri(uriFor("/v1/status"))
+                .setFollowRedirects(false)
+                .build();
+        StatusResponse response = client.execute(request, createStatusResponseHandler());
+        assertEquals(response.getStatusCode(), OK.getStatusCode(), "Status code");
+        assertEquals(response.getHeader(CONTENT_TYPE), APPLICATION_JSON, "Content Type");
+    }
+
+    @Test
+    public void testRedirectToUi()
+    {
+        Request request = prepareGet()
+                .setUri(uriFor("/"))
+                .setFollowRedirects(false)
+                .build();
+        StatusResponse response = client.execute(request, createStatusResponseHandler());
+        assertEquals(response.getStatusCode(), SEE_OTHER.getStatusCode(), "Status code");
+        assertEquals(response.getHeader("Location"), server.getBaseUrl() + "/ui/", "Location");
+
+        // behind a proxy
+        request = prepareGet()
+                .setUri(uriFor("/"))
+                .setHeader(X_FORWARDED_PROTO, "https")
+                .setHeader(X_FORWARDED_HOST, "my-load-balancer.local")
+                .setHeader(X_FORWARDED_PORT, "443")
+                .setFollowRedirects(false)
+                .build();
+        response = client.execute(request, createStatusResponseHandler());
+        assertEquals(response.getStatusCode(), SEE_OTHER.getStatusCode(), "Status code");
+        assertEquals(response.getHeader("Location"), "https://my-load-balancer.local/ui/", "Location");
     }
 
     private Stream<JsonResponse<QueryResults>> postQuery(Function<Request.Builder, Request.Builder> requestConfigurer)

@@ -382,14 +382,14 @@ public class CachingHiveMetastore
     }
 
     @Override
-    public void updatePartitionStatistics(HiveIdentity identity, String databaseName, String tableName, String partitionName, Function<PartitionStatistics, PartitionStatistics> update)
+    public void updatePartitionStatistics(HiveIdentity identity, Table table, String partitionName, Function<PartitionStatistics, PartitionStatistics> update)
     {
         identity = updateIdentity(identity);
         try {
-            delegate.updatePartitionStatistics(identity, databaseName, tableName, partitionName, update);
+            delegate.updatePartitionStatistics(identity, table, partitionName, update);
         }
         finally {
-            HivePartitionName hivePartitionName = hivePartitionName(hiveTableName(databaseName, tableName), partitionName);
+            HivePartitionName hivePartitionName = hivePartitionName(hiveTableName(table.getDatabaseName(), table.getTableName()), partitionName);
             partitionStatisticsCache.invalidate(new WithIdentity<>(identity, hivePartitionName));
             // basic stats are stored as partition properties
             partitionCache.invalidate(new WithIdentity<>(identity, hivePartitionName));
@@ -464,6 +464,18 @@ public class CachingHiveMetastore
         finally {
             invalidateDatabase(databaseName);
             invalidateDatabase(newDatabaseName);
+        }
+    }
+
+    @Override
+    public void setDatabaseOwner(HiveIdentity identity, String databaseName, HivePrincipal principal)
+    {
+        identity = updateIdentity(identity);
+        try {
+            delegate.setDatabaseOwner(identity, databaseName, principal);
+        }
+        finally {
+            invalidateDatabase(databaseName);
         }
     }
 
@@ -679,7 +691,7 @@ public class CachingHiveMetastore
         HiveTableName hiveTableName = firstPartition.getKey().getHiveTableName();
         HiveIdentity identity = updateIdentity(firstPartition.getIdentity());
         Optional<Table> table = getTable(identity, hiveTableName.getDatabaseName(), hiveTableName.getTableName());
-        if (!table.isPresent()) {
+        if (table.isEmpty()) {
             return stream(partitionNames)
                     .collect(toImmutableMap(name -> name, name -> Optional.empty()));
         }
@@ -771,10 +783,10 @@ public class CachingHiveMetastore
     }
 
     @Override
-    public void grantRoles(Set<String> roles, Set<HivePrincipal> grantees, boolean withAdminOption, HivePrincipal grantor)
+    public void grantRoles(Set<String> roles, Set<HivePrincipal> grantees, boolean adminOption, HivePrincipal grantor)
     {
         try {
-            delegate.grantRoles(roles, grantees, withAdminOption, grantor);
+            delegate.grantRoles(roles, grantees, adminOption, grantor);
         }
         finally {
             roleGrantsCache.invalidateAll();
@@ -782,10 +794,10 @@ public class CachingHiveMetastore
     }
 
     @Override
-    public void revokeRoles(Set<String> roles, Set<HivePrincipal> grantees, boolean adminOptionFor, HivePrincipal grantor)
+    public void revokeRoles(Set<String> roles, Set<HivePrincipal> grantees, boolean adminOption, HivePrincipal grantor)
     {
         try {
-            delegate.revokeRoles(roles, grantees, adminOptionFor, grantor);
+            delegate.revokeRoles(roles, grantees, adminOption, grantor);
         }
         finally {
             roleGrantsCache.invalidateAll();
@@ -906,7 +918,7 @@ public class CachingHiveMetastore
         if (expiresAfterWriteMillis.isPresent()) {
             cacheBuilder = cacheBuilder.expireAfterWrite(expiresAfterWriteMillis.getAsLong(), MILLISECONDS);
         }
-        if (refreshMillis.isPresent() && (!expiresAfterWriteMillis.isPresent() || expiresAfterWriteMillis.getAsLong() > refreshMillis.getAsLong())) {
+        if (refreshMillis.isPresent() && (expiresAfterWriteMillis.isEmpty() || expiresAfterWriteMillis.getAsLong() > refreshMillis.getAsLong())) {
             cacheBuilder = cacheBuilder.refreshAfterWrite(refreshMillis.getAsLong(), MILLISECONDS);
         }
         cacheBuilder = cacheBuilder.maximumSize(maximumSize);

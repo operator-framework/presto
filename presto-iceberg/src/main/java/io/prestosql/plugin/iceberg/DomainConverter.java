@@ -29,9 +29,7 @@ import io.prestosql.spi.type.TimestampWithTimeZoneType;
 import io.prestosql.spi.type.Type;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
@@ -46,49 +44,43 @@ public final class DomainConverter
 
     public static TupleDomain<IcebergColumnHandle> convertTupleDomainTypes(TupleDomain<IcebergColumnHandle> tupleDomain)
     {
-        if (tupleDomain.isAll() || tupleDomain.isNone()) {
-            return tupleDomain;
-        }
-        if (!tupleDomain.getDomains().isPresent()) {
-            return tupleDomain;
-        }
+        return tupleDomain.transformDomains((column, domain) -> translateDomain(domain));
+    }
 
-        Map<IcebergColumnHandle, Domain> transformedMap = new HashMap<>();
-        tupleDomain.getDomains().get().forEach((column, domain) -> {
-            ValueSet valueSet = domain.getValues();
-            ValueSet transformedValueSet = valueSet;
-            Type type = domain.getType();
-            if (type instanceof TimestampType || type instanceof TimestampWithTimeZoneType || type instanceof TimeType || type instanceof TimeWithTimeZoneType) {
-                if (valueSet instanceof EquatableValueSet) {
-                    EquatableValueSet equatableValueSet = (EquatableValueSet) valueSet;
-                    Set<ValueEntry> values = equatableValueSet.getEntries().stream()
-                            .map(value -> ValueEntry.create(value.getType(), convertToMicros(type, (long) value.getValue())))
-                            .collect(toImmutableSet());
-                    transformedValueSet = new EquatableValueSet(equatableValueSet.getType(), equatableValueSet.isWhiteList(), values);
-                }
-                else if (valueSet instanceof SortedRangeSet) {
-                    List<Range> ranges = new ArrayList<>();
-                    for (Range range : valueSet.getRanges().getOrderedRanges()) {
-                        Marker low = range.getLow();
-                        if (low.getValueBlock().isPresent()) {
-                            Block value = nativeValueToBlock(type, convertToMicros(type, (long) range.getLow().getValue()));
-                            low = new Marker(range.getType(), Optional.of(value), range.getLow().getBound());
-                        }
-
-                        Marker high = range.getHigh();
-                        if (high.getValueBlock().isPresent()) {
-                            Block value = nativeValueToBlock(type, convertToMicros(type, (long) range.getHigh().getValue()));
-                            high = new Marker(range.getType(), Optional.of(value), range.getHigh().getBound());
-                        }
-
-                        ranges.add(new Range(low, high));
-                    }
-                    transformedValueSet = SortedRangeSet.copyOf(valueSet.getType(), ranges);
-                }
-                transformedMap.put(column, Domain.create(transformedValueSet, domain.isNullAllowed()));
+    private static Domain translateDomain(Domain domain)
+    {
+        ValueSet valueSet = domain.getValues();
+        Type type = domain.getType();
+        if (type instanceof TimestampType || type instanceof TimestampWithTimeZoneType || type instanceof TimeType || type instanceof TimeWithTimeZoneType) {
+            if (valueSet instanceof EquatableValueSet) {
+                EquatableValueSet equatableValueSet = (EquatableValueSet) valueSet;
+                Set<ValueEntry> values = equatableValueSet.getEntries().stream()
+                        .map(value -> ValueEntry.create(value.getType(), convertToMicros(type, (long) value.getValue())))
+                        .collect(toImmutableSet());
+                valueSet = new EquatableValueSet(equatableValueSet.getType(), equatableValueSet.isWhiteList(), values);
             }
-        });
-        return TupleDomain.withColumnDomains(transformedMap);
+            else if (valueSet instanceof SortedRangeSet) {
+                List<Range> ranges = new ArrayList<>();
+                for (Range range : valueSet.getRanges().getOrderedRanges()) {
+                    Marker low = range.getLow();
+                    if (low.getValueBlock().isPresent()) {
+                        Block value = nativeValueToBlock(type, convertToMicros(type, (long) range.getLow().getValue()));
+                        low = new Marker(range.getType(), Optional.of(value), range.getLow().getBound());
+                    }
+
+                    Marker high = range.getHigh();
+                    if (high.getValueBlock().isPresent()) {
+                        Block value = nativeValueToBlock(type, convertToMicros(type, (long) range.getHigh().getValue()));
+                        high = new Marker(range.getType(), Optional.of(value), range.getHigh().getBound());
+                    }
+
+                    ranges.add(new Range(low, high));
+                }
+                valueSet = SortedRangeSet.copyOf(valueSet.getType(), ranges);
+            }
+            return Domain.create(valueSet, domain.isNullAllowed());
+        }
+        return domain;
     }
 
     private static long convertToMicros(Type type, long value)

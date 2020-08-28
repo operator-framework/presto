@@ -14,6 +14,7 @@
 package io.prestosql.plugin.cassandra;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.primitives.Ints;
 import io.airlift.units.Duration;
 import io.prestosql.Session;
 import io.prestosql.spi.type.Type;
@@ -21,6 +22,7 @@ import io.prestosql.testing.AbstractTestIntegrationSmokeTest;
 import io.prestosql.testing.MaterializedResult;
 import io.prestosql.testing.MaterializedRow;
 import io.prestosql.testing.QueryRunner;
+import io.prestosql.testing.assertions.Assert;
 import org.testng.annotations.AfterClass;
 import org.testng.annotations.Test;
 
@@ -31,8 +33,6 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 import static com.datastax.driver.core.utils.Bytes.toRawHexString;
-import static com.google.common.primitives.Ints.toByteArray;
-import static io.airlift.tpch.TpchTable.ORDERS;
 import static io.prestosql.plugin.cassandra.CassandraQueryRunner.createCassandraQueryRunner;
 import static io.prestosql.plugin.cassandra.CassandraQueryRunner.createCassandraSession;
 import static io.prestosql.plugin.cassandra.CassandraTestingUtils.TABLE_ALL_TYPES;
@@ -50,15 +50,18 @@ import static io.prestosql.spi.type.IntegerType.INTEGER;
 import static io.prestosql.spi.type.RealType.REAL;
 import static io.prestosql.spi.type.TimestampType.TIMESTAMP;
 import static io.prestosql.spi.type.VarbinaryType.VARBINARY;
+import static io.prestosql.spi.type.VarcharType.VARCHAR;
 import static io.prestosql.spi.type.VarcharType.createUnboundedVarcharType;
 import static io.prestosql.spi.type.VarcharType.createVarcharType;
 import static io.prestosql.testing.MaterializedResult.DEFAULT_PRECISION;
 import static io.prestosql.testing.MaterializedResult.resultBuilder;
 import static io.prestosql.testing.QueryAssertions.assertContains;
 import static io.prestosql.testing.QueryAssertions.assertContainsEventually;
+import static io.prestosql.tpch.TpchTable.ORDERS;
 import static java.lang.String.format;
 import static java.util.concurrent.TimeUnit.MINUTES;
 import static java.util.stream.Collectors.toList;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.testng.Assert.assertEquals;
 
 public class TestCassandraIntegrationSmokeTest
@@ -78,9 +81,8 @@ public class TestCassandraIntegrationSmokeTest
     protected QueryRunner createQueryRunner()
             throws Exception
     {
-        CassandraServer server = new CassandraServer();
-        this.server = server;
-        this.session = server.getSession();
+        server = new CassandraServer();
+        session = server.getSession();
         createTestTables(session, KEYSPACE, DATE_TIME_LOCAL);
         return createCassandraQueryRunner(server, ORDERS);
     }
@@ -91,28 +93,40 @@ public class TestCassandraIntegrationSmokeTest
         server.close();
     }
 
+    @Test
     @Override
-    protected boolean isDateTypeSupported()
+    public void testDescribeTable()
     {
-        return false;
+        MaterializedResult expectedColumns = resultBuilder(getQueryRunner().getDefaultSession(), VARCHAR, VARCHAR, VARCHAR, VARCHAR)
+                .row("orderkey", "bigint", "", "")
+                .row("custkey", "bigint", "", "")
+                .row("orderstatus", "varchar", "", "")
+                .row("totalprice", "double", "", "")
+                .row("orderdate", "varchar", "", "")
+                .row("orderpriority", "varchar", "", "")
+                .row("clerk", "varchar", "", "")
+                .row("shippriority", "integer", "", "")
+                .row("comment", "varchar", "", "")
+                .build();
+        MaterializedResult actualColumns = computeActual("DESCRIBE orders");
+        Assert.assertEquals(actualColumns, expectedColumns);
     }
 
     @Override
-    protected boolean isParameterizedVarcharSupported()
+    public void testShowCreateTable()
     {
-        return false;
-    }
-
-    @Override
-    protected boolean canCreateSchema()
-    {
-        return false;
-    }
-
-    @Override
-    protected boolean canDropSchema()
-    {
-        return false;
+        assertThat(computeActual("SHOW CREATE TABLE orders").getOnlyValue())
+                .isEqualTo("CREATE TABLE cassandra.tpch.orders (\n" +
+                        "   orderkey bigint,\n" +
+                        "   custkey bigint,\n" +
+                        "   orderstatus varchar,\n" +
+                        "   totalprice double,\n" +
+                        "   orderdate varchar,\n" +
+                        "   orderpriority varchar,\n" +
+                        "   clerk varchar,\n" +
+                        "   shippriority integer,\n" +
+                        "   comment varchar\n" +
+                        ")");
     }
 
     @Test
@@ -124,7 +138,7 @@ public class TestCassandraIntegrationSmokeTest
                 " AND typeuuid = '00000000-0000-0000-0000-000000000007'" +
                 " AND typeinteger = 7" +
                 " AND typelong = 1007" +
-                " AND typebytes = from_hex('" + toRawHexString(ByteBuffer.wrap(toByteArray(7))) + "')" +
+                " AND typebytes = from_hex('" + toRawHexString(ByteBuffer.wrap(Ints.toByteArray(7))) + "')" +
                 " AND typetimestamp = TIMESTAMP '1969-12-31 23:04:05'" +
                 " AND typeansi = 'ansi 7'" +
                 " AND typeboolean = false" +
@@ -152,12 +166,39 @@ public class TestCassandraIntegrationSmokeTest
     }
 
     @Test
+    public void testInsertToTableWithHiddenId()
+    {
+        execute("DROP TABLE IF EXISTS test_create_table");
+        execute("CREATE TABLE test_create_table (col1 integer)");
+        execute("INSERT INTO test_create_table VALUES (12345)");
+        assertQuery("SELECT * FROM smoke_test.test_create_table", "VALUES (12345)");
+        execute("DROP TABLE test_create_table");
+    }
+
+    @Test
     public void testCreateTableAs()
     {
         execute("DROP TABLE IF EXISTS table_all_types_copy");
         execute("CREATE TABLE table_all_types_copy AS SELECT * FROM " + TABLE_ALL_TYPES);
         assertSelect("table_all_types_copy", true);
         execute("DROP TABLE table_all_types_copy");
+    }
+
+    @Test
+    public void testIdentifiers()
+    {
+        session.execute("DROP KEYSPACE IF EXISTS \"_keyspace\"");
+        session.execute("CREATE KEYSPACE \"_keyspace\" WITH REPLICATION = {'class':'SimpleStrategy', 'replication_factor': 1}");
+        assertContainsEventually(() -> execute("SHOW SCHEMAS FROM cassandra"), resultBuilder(getSession(), createUnboundedVarcharType())
+                .row("_keyspace")
+                .build(), new Duration(1, MINUTES));
+
+        execute("CREATE TABLE _keyspace._table AS SELECT 1 AS \"_col\", 2 AS \"2col\"");
+        assertQuery("SHOW TABLES FROM cassandra._keyspace", "VALUES ('_table')");
+        assertQuery("SELECT * FROM cassandra._keyspace._table", "VALUES (1, 2)");
+        assertUpdate("DROP TABLE cassandra._keyspace._table");
+
+        session.execute("DROP KEYSPACE \"_keyspace\"");
     }
 
     @Test
@@ -468,15 +509,15 @@ public class TestCassandraIntegrationSmokeTest
 
         session.execute("INSERT INTO keyspace_test_nested_collection.table_set (column_5, nested_collection) VALUES (1, {{1, 2, 3}})");
         assertEquals(execute("SELECT nested_collection FROM cassandra.keyspace_test_nested_collection.table_set").getMaterializedRows().get(0),
-                     new MaterializedRow(DEFAULT_PRECISION, "[[1,2,3]]"));
+                new MaterializedRow(DEFAULT_PRECISION, "[[1,2,3]]"));
 
         session.execute("INSERT INTO keyspace_test_nested_collection.table_list (column_5, nested_collection) VALUES (1, [[4, 5, 6]])");
         assertEquals(execute("SELECT nested_collection FROM cassandra.keyspace_test_nested_collection.table_list").getMaterializedRows().get(0),
-                     new MaterializedRow(DEFAULT_PRECISION, "[[4,5,6]]"));
+                new MaterializedRow(DEFAULT_PRECISION, "[[4,5,6]]"));
 
         session.execute("INSERT INTO keyspace_test_nested_collection.table_map (column_5, nested_collection) VALUES (1, {7:{8:9}})");
         assertEquals(execute("SELECT nested_collection FROM cassandra.keyspace_test_nested_collection.table_map").getMaterializedRows().get(0),
-                     new MaterializedRow(DEFAULT_PRECISION, "{7:{8:9}}"));
+                new MaterializedRow(DEFAULT_PRECISION, "{7:{8:9}}"));
 
         session.execute("DROP KEYSPACE keyspace_test_nested_collection");
     }
@@ -645,7 +686,7 @@ public class TestCassandraIntegrationSmokeTest
                     format("00000000-0000-0000-0000-%012d", rowNumber),
                     rowNumber,
                     rowNumber + 1000L,
-                    ByteBuffer.wrap(toByteArray(rowNumber)),
+                    ByteBuffer.wrap(Ints.toByteArray(rowNumber)),
                     TIMESTAMP_LOCAL,
                     "ansi " + rowNumber,
                     rowNumber % 2 == 0,

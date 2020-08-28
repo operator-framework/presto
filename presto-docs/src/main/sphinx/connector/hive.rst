@@ -25,6 +25,18 @@ data warehouse. Hive is a combination of three components:
 Presto only uses the first two components: the data and the metadata.
 It does not use HiveQL or any part of Hive's execution environment.
 
+Requirements
+------------
+
+The Hive connector requires a Hive metastore service (HMS), or a compatible
+implementation of the Hive metastore, such as `AWS Glue <https://aws.amazon.com/glue/>`_.
+
+Apache Hadoop 2.x and 3.x are supported, along with derivative distributions,
+including Cloudera CDH 5 and Hortonworks Data Platform (HDP).
+
+Many distributed storage systems including HDFS, Amazon S3, Google Cloud Storage,
+Azure Storage, and S3 compatible systems are supported.
+
 Supported File Types
 --------------------
 
@@ -40,11 +52,42 @@ The following file types are supported for the Hive connector:
 * CSV (using ``org.apache.hadoop.hive.serde2.OpenCSVSerde``)
 * TextFile
 
+Metastore Configuration for Avro and CSV
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+In order to enable first-class support for Avro tables and CSV files when using
+Hive 3.x, you need to add the following property definition to the Hive metastore
+configuration file ``hive-site.xml`` (and restart the metastore service):
+
+.. code-block:: xml
+
+   <property>
+        <!-- https://community.hortonworks.com/content/supportkb/247055/errorjavalangunsupportedoperationexception-storage.html -->
+        <name>metastore.storage.schema.reader.impl</name>
+        <value>org.apache.hadoop.hive.metastore.SerDeStorageSchemaReader</value>
+    </property>
+
+Supported Table Types
+---------------------
+
+Transactional and ACID Tables
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+When connecting to a Hive metastore version 3.x, the Hive connector supports reading
+from insert-only and ACID tables, with full support for partitioning and bucketing.
+Writing to and creation of transactional tables is not supported.
+
+ACID tables created with `Hive Streaming Ingest <https://cwiki.apache.org/confluence/display/Hive/Streaming+Data+Ingest>`_
+are not supported.
+
+Materialized Views
+------------------
+
+The Hive connector supports reading from Hive materialized views.
+In Presto, these views are presented as regular, read-only tables.
+
 Configuration
 -------------
-
-The Hive connector supports Apache Hadoop 2.x and derivative distributions
-including Cloudera CDH 5 and Hortonworks Data Platform (HDP).
 
 Create ``etc/catalog/hive.properties`` with the following contents
 to mount the ``hive-hadoop2`` connector as the ``hive`` catalog,
@@ -146,6 +189,10 @@ Property Name                                      Description                  
                                                    ignored. This is equivalent to the
                                                    ``hive.mapred.supports.subdirectories`` property in Hive.
 
+``hive.ignore-absent-partitions``                  Ignore partitions when the file system location does not     ``false``
+                                                   exist rather than failing the query. This skips data that
+                                                   may be expected to be part of the table.
+
 ``hive.storage-format``                            The default file format used when creating new tables.       ``ORC``
 
 ``hive.compression-codec``                         The compression codec to use when writing files.             ``GZIP``
@@ -194,50 +241,76 @@ Property Name                                      Description                  
 ``hive.s3select-pushdown.max-connections``         Maximum number of simultaneously open connections to S3 for  500
                                                    :ref:`s3selectpushdown`.
 
-``hive.file-status-cache-tables``                  Cache directory listing for specified tables.
-                                                   Examples: ``schema.table1,schema.table2`` to cache directory
-                                                   listing only for ``table1`` and ``table2``.
-                                                   ``schema1.*,schema2.*`` to cache directory listing for all
-                                                   tables in the schemas ``schema1`` and ``schema2``.
-                                                   ``*`` to cache directory listing for all tables.
+``hive.file-status-cache-tables``                  Cache directory listing for specific tables. Examples:
 
-``hive.file-status-cache-size``                    Maximum no. of file status entries cached for a path.        10,00,000
+                                                   * ``fruit.apple,fruit.orange`` to cache listings only for
+                                                     tables ``apple`` and ``orange`` in schema ``fruit``
+                                                   * ``fruit.*,vegetable.*`` to cache listings for all tables
+                                                     in schemas ``fruit`` and ``vegetable``
+                                                   * ``*`` to cache listings for all tables in all schemas
 
-``hive.file-status-cache-expire-time``             Duration of time after a directory listing is cached that it ``1m``
-                                                   should be automatically removed from cache.
+``hive.file-status-cache-size``                    Maximum total number of cached file status entries.          1,000,000
+
+``hive.file-status-cache-expire-time``             How long a cached directory listing should be considered     ``1m``
+                                                   valid.
 ================================================== ============================================================ ============
 
 Hive Thrift Metastore Configuration Properties
 ----------------------------------------------
 
-================================================== ============================================================
-Property Name                                      Description
-================================================== ============================================================
-``hive.metastore.uri``                             The URI(s) of the Hive metastore to connect to using the
-                                                   Thrift protocol. If multiple URIs are provided, the first
-                                                   URI is used by default, and the rest of the URIs are
-                                                   fallback metastores. This property is required.
-                                                   Example: ``thrift://192.0.2.3:9083`` or
-                                                   ``thrift://192.0.2.3:9083,thrift://192.0.2.4:9083``
+============================================================= ============================================================ ============
+Property Name                                                 Description                                                  Default
+============================================================= ============================================================ ============
+``hive.metastore.uri``                                        The URI(s) of the Hive metastore to connect to using the
+                                                              Thrift protocol. If multiple URIs are provided, the first
+                                                              URI is used by default, and the rest of the URIs are
+                                                              fallback metastores. This property is required.
+                                                              Example: ``thrift://192.0.2.3:9083`` or
+                                                              ``thrift://192.0.2.3:9083,thrift://192.0.2.4:9083``
 
-``hive.metastore.username``                        The username Presto uses to access the Hive metastore.
+``hive.metastore.username``                                   The username Presto uses to access the Hive metastore.
 
-``hive.metastore.authentication.type``             Hive metastore authentication type.
-                                                   Possible values are ``NONE`` or ``KERBEROS``
-                                                   (defaults to ``NONE``).
+``hive.metastore.authentication.type``                        Hive metastore authentication type.
+                                                              Possible values are ``NONE`` or ``KERBEROS``
+                                                              (defaults to ``NONE``).
 
-``hive.metastore.thrift.impersonation.enabled``    Enable Hive metastore end user impersonation.
+``hive.metastore.thrift.impersonation.enabled``               Enable Hive metastore end user impersonation.
 
-``hive.metastore.service.principal``               The Kerberos principal of the Hive metastore service.
+``hive.metastore.thrift.delegation-token.cache-ttl``          Time to live delegation token cache for metastore.           ``1h``
 
-``hive.metastore.client.principal``                The Kerberos principal that Presto uses when connecting
-                                                   to the Hive metastore service.
+``hive.metastore.thrift.delegation-token.cache-maximum-size`` Delegation token cache maximum size.                         1,000
 
-``hive.metastore.client.keytab``                   Hive metastore client keytab location.
-================================================== ============================================================
+``hive.metastore.thrift.client.ssl.enabled``                  Use SSL when connecting to metastore.                        ``false``
+
+``hive.metastore.thrift.client.ssl.key``                      Path to PEM private key and client certificate (key store).
+
+``hive.metastore.thrift.client.ssl.key-password``             Password for the PEM private key.
+
+``hive.metastore.thrift.client.ssl.trust-certificate``        Path to the PEM server certificate chain (trust store).
+                                                              Required when SSL is enabled.
+
+``hive.metastore.service.principal``                          The Kerberos principal of the Hive metastore service.
+
+``hive.metastore.client.principal``                           The Kerberos principal that Presto uses when connecting
+                                                              to the Hive metastore service.
+
+``hive.metastore.client.keytab``                              Hive metastore client keytab location.
+
+``hive.metastore-cache-ttl``                                  Time to live Hive metadata cache.                            ``0s``
+
+``hive.metastore-refresh-interval``                           How often to refresh the Hive metastore cache.
+
+``hive.metastore-cache-maximum-size``                         Hive metastore cache maximum size.                           10,000
+
+``hive.metastore-refresh-max-threads``                        Maximum number of threads to refresh Hive metastore cache.   100
+============================================================= ============================================================ ============
 
 AWS Glue Catalog Configuration Properties
 -----------------------------------------
+
+In order to use a Glue catalog, ensure to configure the metastore with
+``hive.metastore=glue`` and provide further details with the following
+properties:
 
 ==================================================== ============================================================
 Property Name                                        Description
@@ -266,7 +339,12 @@ Property Name                                        Description
 
 ``hive.metastore.glue.iam-role``                     ARN of an IAM role to assume when connecting to the Glue
                                                      Catalog.
+
+``hive.metastore.glue.external-id``                  External ID for the IAM role trust policy when connecting
+                                                     to the Glue Catalog.
 ==================================================== ============================================================
+
+.. _hive-s3:
 
 Amazon S3 Configuration
 -----------------------
@@ -284,20 +362,23 @@ S3 Configuration Properties
 ============================================ =================================================================
 Property Name                                Description
 ============================================ =================================================================
-``hive.s3.use-instance-credentials``         Use the EC2 metadata service to retrieve API credentials,
-                                             defaults to ``true``. This works with IAM roles in EC2.
-
 ``hive.s3.aws-access-key``                   Default AWS access key to use.
 
 ``hive.s3.aws-secret-key``                   Default AWS secret key to use.
 
 ``hive.s3.iam-role``                         IAM role to assume.
 
+``hive.s3.external-id``                      External ID for the IAM role trust policy.
+
 ``hive.s3.endpoint``                         The S3 storage endpoint server. This can be used to
                                              connect to an S3-compatible storage system instead
                                              of AWS. When using v4 signatures, it is recommended to
                                              set this to the AWS region-specific endpoint
                                              (e.g., ``http[s]://<bucket>.s3-<AWS-region>.amazonaws.com``).
+
+``hive.s3.storage-class``                    The S3 storage class to use when writing the data. Currently only
+                                             ``STANDARD`` and ``INTELLIGENT_TIERING`` storage classes are supported.
+                                             Default storage class is ``STANDARD``
 
 ``hive.s3.signer-type``                      Specify a different signer type for S3-compatible storage.
                                              Example: ``S3SignerType`` for v2 signer type
@@ -348,13 +429,14 @@ Property Name                                Description
                                              or partition. Defaults to ``false``.
 ============================================ =================================================================
 
+.. _hive-s3-credentials:
+
 S3 Credentials
 ^^^^^^^^^^^^^^
 
 If you are running Presto on Amazon EC2, using EMR or another facility,
-it is highly recommended that you set ``hive.s3.use-instance-credentials``
-to ``true`` and use IAM Roles for EC2 to govern access to S3. If this is
-the case, your EC2 instances need to be assigned an IAM Role which
+it is recommended that you use IAM Roles for EC2 to govern access to S3.
+To enable this, your EC2 instances need to be assigned an IAM Role which
 grants appropriate access to the data stored in the S3 bucket(s) you wish
 to use. It is also possible to configure an IAM role with ``hive.s3.iam-role``
 that is used for accessing any S3 bucket. This is much cleaner than
@@ -378,6 +460,104 @@ IAM role-based credentials (using ``STSAssumeRoleSessionCredentialsProvider``),
 or credentials for a specific use case (e.g., bucket/user specific credentials).
 This Hadoop configuration property must be set in the Hadoop configuration
 files referenced by the ``hive.config.resources`` Hive connector property.
+
+.. _hive-s3-security-mapping:
+
+S3 Security Mapping
+^^^^^^^^^^^^^^^^^^^
+
+Presto supports flexible security mapping for S3, allowing for separate
+credentials or IAM roles for specific users or buckets/paths. The IAM role
+for a specific query can be selected from a list of allowed roles by providing
+it as an *extra credential*.
+
+Each security mapping entry may specify one or more match criteria. If multiple
+criteria are specified, all criteria must match. Available match criteria:
+
+* ``user``: Regular expression to match against username. Example: ``alice|bob``
+
+* ``group``: Regular expression to match against any of the groups that the user
+  belongs to. Example: ``finance|sales``
+
+* ``prefix``: S3 URL prefix. It can specify an entire bucket or a path within a
+  bucket. The URL must start with ``s3://`` but will also match ``s3a`` or ``s3n``.
+  Example: ``s3://bucket-name/abc/xyz/``
+
+The security mapping must provide one or more configuration settings:
+
+* ``accessKey`` and ``secretKey``: AWS access key and secret key. This overrides
+  any globally configured credentials, such as access key or instance credentials.
+
+* ``iamRole``: IAM role to use if no user provided role is specified as an
+  extra credential. This overrides any globally configured IAM role. This role
+  is allowed to be specified as an extra credential, although specifying it
+  explicitly has no effect, as it would be used anyway.
+
+* ``allowedIamRoles``: IAM roles that are allowed to be specified as an extra
+  credential. This is useful because a particular AWS account may have permissions
+  to use many roles, but a specific user should only be allowed to use a subset
+  of those roles.
+
+The security mapping entries are processed in the order listed in the configuration
+file. More specific mappings should thus be specified before less specific mappings.
+For example, the mapping list might have URL prefix ``s3://abc/xyz/`` followed by
+``s3://abc/`` to allow different configuration for a specific path within a bucket
+than for other paths within the bucket. You can set default configuration by not
+including any match criteria for the last entry in the list.
+
+Example JSON configuration file:
+
+.. code-block:: json
+
+    {
+      "mappings": [
+        {
+          "prefix": "s3://bucket-name/abc/",
+          "iamRole": "arn:aws:iam::123456789101:role/test_path"
+        },
+        {
+          "user": "bob|charlie",
+          "iamRole": "arn:aws:iam::123456789101:role/test_default",
+          "allowedIamRoles": [
+            "arn:aws:iam::123456789101:role/test1",
+            "arn:aws:iam::123456789101:role/test2",
+            "arn:aws:iam::123456789101:role/test3"
+          ]
+        },
+        {
+          "prefix": "s3://special-bucket/",
+          "accessKey": "AKIAxxxaccess",
+          "secretKey": "iXbXxxxsecret"
+        },
+        {
+          "user": "test.*",
+          "iamRole": "arn:aws:iam::123456789101:role/test_users"
+        },
+        {
+          "group": "finance",
+          "iamRole": "arn:aws:iam::123456789101:role/finance_users"
+        },
+        {
+          "iamRole": "arn:aws:iam::123456789101:role/default"
+        }
+      ]
+    }
+
+======================================================= =================================================================
+Property Name                                           Description
+======================================================= =================================================================
+``hive.s3.security-mapping.config-file``                The JSON configuration file containing security mappings.
+
+``hive.s3.security-mapping.iam-role-credential-name``   The name of the *extra credential* used to provide the IAM role.
+
+``hive.s3.security-mapping.refresh-period``             How often to refresh the security mapping configuration.
+
+``hive.s3.security-mapping.colon-replacement``          The character or characters to be used in place of the colon
+                                                        (``:``) character when specifying an IAM role name as an
+                                                        extra credential. Any instances of this replacement value in the
+                                                        extra credential value will be converted to a colon. Choose a
+                                                        value that is not used in any of your IAM ARNs.
+======================================================= =================================================================
 
 Tuning Properties
 ^^^^^^^^^^^^^^^^^
@@ -533,16 +713,16 @@ Property Name                                Description
 Alluxio Configuration
 ---------------------
 
-Presto can read and write tables stored in data orchestration layer
-`Alluxio <https://www.alluxio.io/?utm_source=prestosql&utm_medium=prestodocs>`_,
-using Alluxio as a distributed block-level read/write caching engine.
+Presto can read and write tables stored in the
+`Alluxio Data Orchestration System <https://www.alluxio.io/?utm_source=prestosql&utm_medium=prestodocs>`_,
+leveraging Alluxio's distributed block-level read/write caching functionality.
 The tables must be created in the Hive metastore with the ``alluxio://`` location prefix
-(see `Running Apache Hive with Alluxio <https://docs.alluxio.io/os/user/2.0/en/compute/Hive.html>`_
+(see `Running Apache Hive with Alluxio <https://docs.alluxio.io/os/user/2.1/en/compute/Hive.html?utm_source=prestosql&utm_medium=prestodocs>`_
 for details and examples).
 Presto queries will then transparently retrieve and cache files
 or objects from a variety of disparate storage systems including HDFS and S3.
 
-Alluxio Client-side Configuration
+Alluxio Client-Side Configuration
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 To configure Alluxio client-side properties on Presto, append the Alluxio
@@ -556,7 +736,7 @@ Update the Presto :ref:`presto_jvm_config` file ``etc/jvm.config`` to include th
 
 The advantage of this approach is that all the Alluxio properties are set in
 the single ``alluxio-site.properties`` file. For details, see `Customize Alluxio User Properties
-<https://docs.alluxio.io/os/user/2.0/en/compute/Presto.html#customize-alluxio-user-properties>`_.
+<https://docs.alluxio.io/os/user/2.1/en/compute/Presto.html#customize-alluxio-user-properties?utm_source=prestosql&utm_medium=prestodocs>`_.
 
 Alternatively, add Alluxio configuration properties to the Hadoop configuration
 files (``core-site.xml``, ``hdfs-site.xml``) and configure the Hive connector
@@ -571,6 +751,52 @@ to collocate Presto workers with Alluxio workers. This allows reads and writes
 to bypass the network (*short-circuit*). See `Performance Tuning Tips for Presto with Alluxio
 <https://www.alluxio.io/blog/top-5-performance-tuning-tips-for-running-presto-on-alluxio-1/?utm_source=prestosql&utm_medium=prestodocs>`_
 for more details.
+
+.. _alluxio_catalog_service:
+
+Alluxio Catalog Service
+^^^^^^^^^^^^^^^^^^^^^^^
+
+An alternative way for Presto to interact with Alluxio is via the
+`Alluxio catalog service <https://docs.alluxio.io/os/user/stable/en/core-services/Catalog.html?utm_source=prestosql&utm_medium=prestodocs>`_.
+The primary benefits for using the Alluxio catalog service are simpler
+deployment of Alluxio with Presto, and enabling schema-aware optimizations
+such as transparent caching and transformations. Currently, the catalog service
+supports read-only workloads.
+
+The Alluxio catalog service is a metastore that can cache the information
+from different underlying metastores. It currently supports the Hive metastore
+as an underlying metastore. In order for the Alluxio catalog to manage the metadata
+of other existing metastores, the other metastores must be "attached" to the
+Alluxio catalog. To attach an existing Hive metastore to the Alluxio
+catalog, simply use the
+`Alluxio CLI attachdb command <https://docs.alluxio.io/os/user/stable/en/operation/User-CLI.html?utm_source=prestosql&utm_medium=prestodocs#attachdb>`_.
+The appropriate Hive metastore location and Hive database name need to be
+provided.
+
+.. code-block:: none
+
+    ./bin/alluxio table attachdb hive thrift://HOSTNAME:9083 hive_db_name
+
+Once a metastore is attached, the Alluxio catalog can manage and serve the
+information to Presto. To configure the Hive connector for Alluxio
+catalog service, simply configure the connector to use the Alluxio
+metastore type, and provide the location to the Alluxio cluster.
+For example, your ``etc/catalog/alluxio.properties`` should include
+the following:
+
+.. code-block:: none
+
+    connector.name=hive-hadoop2
+    hive.metastore=alluxio
+    hive.metastore.alluxio.master.address=HOSTNAME:PORT
+
+Replace ``HOSTNAME`` with the Alluxio master hostname, and replace ``PORT``
+with the Alluxio master port.
+An example of an Alluxio master address is ``master-node:19998``.
+Now, Presto queries can take advantage of the Alluxio catalog service, such as
+transparent caching and transparent transformations, without any modifications
+to existing Hive metastore deployments.
 
 Table Statistics
 ----------------
@@ -629,6 +855,11 @@ specify a subset of columns to be analyzed via the optional ``columns`` property
 
 This query collects statistics for columns ``col_1`` and ``col_2`` for the partition
 with keys ``p2_value1, p2_value2``.
+
+Note that if statistics were previously collected for all columns, they need to be dropped
+before re-analyzing just a subset::
+
+    CALL system.drop_stats(schema_name, table_name, ARRAY[ARRAY['p2_value1', 'p2_value2']])
 
 Schema Evolution
 ----------------
@@ -722,6 +953,64 @@ Procedures
     * ``DROP``: drop any partitions that exist in the metastore, but not on the file system.
     * ``FULL``: perform both ``ADD`` and ``DROP``.
 
+* ``system.drop_stats(schema_name, table_name, partition_values)``
+
+    Drops statistics for a subset of partitions or the entire table. The partitions are specified as an
+    array whose elements are arrays of partition values (similar to the ``partition_values`` argument in
+    ``create_empty_partition``). A null value for the ``partition_values`` argument indicates that stats
+    should be dropped for the entire table.
+
+.. _register_partition:
+
+* ``system.register_partition(schema_name, table_name, partition_columns, partition_values, location)``
+
+    Registers existing location as a new partition in the metastore for the specified table.
+
+    Due to security reasons, the procedure is enabled only when ``hive.allow-register-partition-procedure``
+    is set to ``true``.
+
+.. _unregister_partition:
+
+* ``system.unregister_partition(schema_name, table_name, partition_columns, partition_values)``
+
+    Unregisters given, existing partition in the metastore for the specified table.
+    The partition data is not deleted.
+
+Special Columns
+---------------
+
+In addition to the defined columns, the Hive connector automatically exposes
+metadata in a number of hidden columns in each table. You can use these columns
+in your SQL statements like any other column, e.g., they can be selected
+directly or used in conditional statements.
+
+* ``$bucket``
+    Bucket number for this row.
+
+* ``$path``
+    Full file system path name of the file for this row.
+
+* ``$file_modified_time``
+    Date and time of the last modification of the file for this row.
+
+* ``$file_size``
+    Size of the file for this row.
+
+Special Tables
+----------------
+
+Table Properties
+^^^^^^^^^^^^^^^^
+
+The raw Hive table properties are available as a hidden table, containing a
+separate column per table property, with a single row containing the property
+values. The properties table name is the same as the table name with
+``$properties`` appended.
+
+You can inspect the property names and values with a simple query::
+
+    SELECT * FROM hive.web."page_views$properties";
+
 Examples
 --------
 
@@ -768,6 +1057,13 @@ Add an empty partition to the ``page_views`` table::
         partition_columns => ARRAY['ds', 'country'],
         partition_values => ARRAY['2016-08-09', 'US']);
 
+Drop stats for a partition of the ``page_views`` table::
+
+    CALL system.drop_stats(
+        schema_name => 'web',
+        table_name => 'page_views',
+        partition_values => ARRAY['2016-08-09', 'US']);
+
 Query the ``page_views`` table::
 
     SELECT * FROM hive.web.page_views
@@ -811,4 +1107,18 @@ Drop a schema::
 Hive Connector Limitations
 --------------------------
 
-:doc:`/sql/delete` is only supported if the ``WHERE`` clause matches entire partitions.
+* :doc:`/sql/delete` is only supported if the ``WHERE`` clause matches entire partitions.
+* :doc:`/sql/alter-schema` usage fails, since the Hive metastore does not support renaming schemas.
+
+Hive 3 Related Limitations
+^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+* For security reasons, the ``sys`` system catalog is not accessible.
+* Hive's ``timestamp with local zone`` data type is not supported.
+  It is possible to read from a table with a column of this type, but the column
+  data is not accessible. Writing to such a table is not supported.
+* Due to Hive issues `HIVE-21002 <https://issues.apache.org/jira/browse/HIVE-21002>`_
+  and `HIVE-22167 <https://issues.apache.org/jira/browse/HIVE-22167>`_, Presto does
+  not correctly read ``timestamp`` values from Parquet, RCBinary, or Avro
+  file formats created by Hive 3.1 or later. When reading from these file formats,
+  Presto returns different results than Hive.

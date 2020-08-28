@@ -232,7 +232,7 @@ public interface ConnectorMetadata
     /**
      * Creates a schema.
      */
-    default void createSchema(ConnectorSession session, String schemaName, Map<String, Object> properties)
+    default void createSchema(ConnectorSession session, String schemaName, Map<String, Object> properties, PrestoPrincipal owner)
     {
         throw new PrestoException(NOT_SUPPORTED, "This connector does not support creating schemas");
     }
@@ -253,6 +253,14 @@ public interface ConnectorMetadata
     default void renameSchema(ConnectorSession session, String source, String target)
     {
         throw new PrestoException(NOT_SUPPORTED, "This connector does not support renaming schemas");
+    }
+
+    /**
+     * Sets the user/role on the specified schema.
+     */
+    default void setSchemaAuthorization(ConnectorSession session, String source, PrestoPrincipal principal)
+    {
+        throw new PrestoException(NOT_SUPPORTED, "This connector does not support setting an owner on a schema");
     }
 
     /**
@@ -390,22 +398,39 @@ public interface ConnectorMetadata
     }
 
     /**
-     * Start a SELECT/UPDATE/INSERT/DELETE query. This notification is triggered after the planning phase completes.
+     * Start a query. This notification is triggered before any other metadata access.
      */
     default void beginQuery(ConnectorSession session) {}
 
     /**
-     * Cleanup after a SELECT/UPDATE/INSERT/DELETE query. This is the very last notification after the query finishes, whether it succeeds or fails.
+     * Cleanup after a query. This is the very last notification after the query finishes, whether it succeeds or fails.
      * An exception thrown in this method will not affect the result of the query.
      */
     default void cleanupQuery(ConnectorSession session) {}
 
     /**
-     * Begin insert query
+     * @deprecated Use {@link #beginInsert(ConnectorSession, ConnectorTableHandle, List)} instead.
      */
+    @Deprecated
     default ConnectorInsertTableHandle beginInsert(ConnectorSession session, ConnectorTableHandle tableHandle)
     {
         throw new PrestoException(NOT_SUPPORTED, "This connector does not support inserts");
+    }
+
+    /**
+     * Begin insert query
+     */
+    default ConnectorInsertTableHandle beginInsert(ConnectorSession session, ConnectorTableHandle tableHandle, List<ColumnHandle> columns)
+    {
+        return beginInsert(session, tableHandle);
+    }
+
+    /**
+     * @return whether connector handles missing columns during insert
+     */
+    default boolean supportsMissingColumnsOnInsert()
+    {
+        return false;
     }
 
     /**
@@ -497,6 +522,22 @@ public interface ConnectorMetadata
     }
 
     /**
+     * Gets the schema properties for the specified schema.
+     */
+    default Map<String, Object> getSchemaProperties(ConnectorSession session, CatalogSchemaName schemaName)
+    {
+        throw new PrestoException(NOT_SUPPORTED, "This connector does not support schema properties");
+    }
+
+    /**
+     * Get the schema properties for the specified schema.
+     */
+    default Optional<PrestoPrincipal> getSchemaOwner(ConnectorSession session, CatalogSchemaName schemaName)
+    {
+        throw new PrestoException(NOT_SUPPORTED, "This connector does not support schema ownership");
+    }
+
+    /**
      * @return whether delete without table scan is supported
      */
     default boolean supportsMetadataDelete(ConnectorSession session, ConnectorTableHandle tableHandle, ConnectorTableLayoutHandle tableLayoutHandle)
@@ -580,7 +621,7 @@ public interface ConnectorMetadata
      *
      * @param grantor represents the principal specified by GRANTED BY statement
      */
-    default void grantRoles(ConnectorSession connectorSession, Set<String> roles, Set<PrestoPrincipal> grantees, boolean withAdminOption, Optional<PrestoPrincipal> grantor)
+    default void grantRoles(ConnectorSession connectorSession, Set<String> roles, Set<PrestoPrincipal> grantees, boolean adminOption, Optional<PrestoPrincipal> grantor)
     {
         throw new PrestoException(NOT_SUPPORTED, "This connector does not support roles");
     }
@@ -590,7 +631,7 @@ public interface ConnectorMetadata
      *
      * @param grantor represents the principal specified by GRANTED BY statement
      */
-    default void revokeRoles(ConnectorSession connectorSession, Set<String> roles, Set<PrestoPrincipal> grantees, boolean adminOptionFor, Optional<PrestoPrincipal> grantor)
+    default void revokeRoles(ConnectorSession connectorSession, Set<String> roles, Set<PrestoPrincipal> grantees, boolean adminOption, Optional<PrestoPrincipal> grantor)
     {
         throw new PrestoException(NOT_SUPPORTED, "This connector does not support roles");
     }
@@ -789,4 +830,13 @@ public interface ConnectorMetadata
     {
         return Optional.empty();
     }
+
+    /**
+     * Allows the connector to reject the table scan produced by the planner.
+     * <p>
+     * Connectors can choose to reject a query based on the table scan potentially being too expensive, for example
+     * if no filtering is done on a partition column.
+     * <p>
+     */
+    default void validateScan(ConnectorSession session, ConnectorTableHandle handle) {}
 }

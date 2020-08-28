@@ -36,14 +36,6 @@ import static org.testng.Assert.assertTrue;
 public abstract class AbstractTestJoinQueries
         extends AbstractTestQueryFramework
 {
-    @Deprecated
-    protected AbstractTestJoinQueries(QueryRunnerSupplier supplier)
-    {
-        super(supplier);
-    }
-
-    protected AbstractTestJoinQueries() {}
-
     @Test
     public void testJoinWithMultiFieldGroupBy()
     {
@@ -897,7 +889,7 @@ public abstract class AbstractTestJoinQueries
                 condition);
 
         queryTemplate.replaceAll(
-                (query) -> assertQueryFails(query, "line .*: .* is not supported"),
+                (query) -> assertQueryFails(query, "line .*: Reference to column 'x' from outer scope not allowed in this context"),
                 ImmutableList.of(type.of("left"), type.of("right"), type.of("full")),
                 ImmutableList.of(
                         condition.of("EXISTS(SELECT 1 WHERE x = y)"),
@@ -2281,6 +2273,28 @@ public abstract class AbstractTestJoinQueries
                 "JOIN (SELECT * FROM t3 JOIN t4 ON id3 = id4) v " +
                 "ON id1 = id4 " +
                 "WHERE id3 = 10");
+    }
+
+    @Test
+    public void testMultiJoinWithEligibleForDynamicFiltering()
+    {
+        assertQuery("" +
+                        "SELECT customer.name, lineitem.partkey " +
+                        "FROM lineitem " +
+                        "LEFT JOIN orders ON lineitem.orderkey = orders.orderkey " + // with dynamic filters enabled, gets converted to INNER CROSS JOIN
+                        "LEFT JOIN customer ON orders.custkey = customer.custkey " + // gets converted to INNER join
+                        "WHERE lineitem.orderkey = 31718 " +
+                        "AND customer.name >= 'Customer#000001463' ",
+                "VALUES ('Customer#000001471', 474), ('Customer#000001471', 1969), ('Customer#000001471', 32)");
+
+        assertQuery("" +
+                        "SELECT count(*) " +
+                        "FROM lineitem " +
+                        "LEFT JOIN orders ON lineitem.orderkey = orders.orderkey " + // with dynamic filters enabled, gets converted to INNER CROSS JOIN
+                        "LEFT JOIN customer ON orders.custkey = customer.custkey " + // gets converted to INNER join
+                        "WHERE lineitem.orderkey = 31718 " +
+                        "AND customer.name >= 'Customer#000001463' ",
+                "VALUES 3");
     }
 
     private Session noJoinReordering()

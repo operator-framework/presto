@@ -14,8 +14,8 @@
 package io.prestosql.plugin.tpch.statistics;
 
 import io.airlift.slice.Slice;
-import io.airlift.tpch.TpchColumn;
-import io.airlift.tpch.TpchTable;
+import io.prestosql.tpch.TpchColumn;
+import io.prestosql.tpch.TpchTable;
 
 import java.util.List;
 import java.util.Map;
@@ -55,7 +55,7 @@ public class StatisticsEstimator
                 Slice value = checkType(partitionValue, Slice.class, "Only string (Slice) partition values supported for now");
                 Optional<TableStatisticsData> tableStatisticsData = tableStatisticsDataRepository
                         .load(schemaName, tpchTable, Optional.of(partitionColumn), Optional.of(value.toStringUtf8()));
-                if (!tableStatisticsData.isPresent()) {
+                if (tableStatisticsData.isEmpty()) {
                     return Optional.empty();
                 }
                 result = addPartitionStats(result, tableStatisticsData.get(), partitionColumn);

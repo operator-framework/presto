@@ -14,7 +14,6 @@
 package io.prestosql.testing;
 
 import com.google.common.base.Joiner;
-import io.airlift.tpch.TpchTable;
 import io.prestosql.Session;
 import io.prestosql.plugin.tpch.TpchMetadata;
 import io.prestosql.plugin.tpch.TpchTableHandle;
@@ -28,6 +27,7 @@ import io.prestosql.spi.type.CharType;
 import io.prestosql.spi.type.DecimalType;
 import io.prestosql.spi.type.Type;
 import io.prestosql.spi.type.VarcharType;
+import io.prestosql.tpch.TpchTable;
 import org.intellij.lang.annotations.Language;
 import org.jdbi.v3.core.Handle;
 import org.jdbi.v3.core.Jdbi;
@@ -59,11 +59,6 @@ import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.Lists.newArrayList;
 import static io.airlift.slice.Slices.utf8Slice;
-import static io.airlift.tpch.TpchTable.LINE_ITEM;
-import static io.airlift.tpch.TpchTable.NATION;
-import static io.airlift.tpch.TpchTable.ORDERS;
-import static io.airlift.tpch.TpchTable.PART;
-import static io.airlift.tpch.TpchTable.REGION;
 import static io.prestosql.operator.scalar.JsonFunctions.jsonParse;
 import static io.prestosql.plugin.tpch.TpchMetadata.TINY_SCHEMA_NAME;
 import static io.prestosql.plugin.tpch.TpchRecordSet.createTpchRecordSet;
@@ -81,9 +76,16 @@ import static io.prestosql.spi.type.TimeWithTimeZoneType.TIME_WITH_TIME_ZONE;
 import static io.prestosql.spi.type.TimestampType.TIMESTAMP;
 import static io.prestosql.spi.type.TimestampWithTimeZoneType.TIMESTAMP_WITH_TIME_ZONE;
 import static io.prestosql.spi.type.TinyintType.TINYINT;
+import static io.prestosql.spi.type.VarbinaryType.VARBINARY;
 import static io.prestosql.spi.type.Varchars.isVarcharType;
+import static io.prestosql.tpch.TpchTable.LINE_ITEM;
+import static io.prestosql.tpch.TpchTable.NATION;
+import static io.prestosql.tpch.TpchTable.ORDERS;
+import static io.prestosql.tpch.TpchTable.PART;
+import static io.prestosql.tpch.TpchTable.REGION;
 import static io.prestosql.type.JsonType.JSON;
 import static io.prestosql.type.UnknownType.UNKNOWN;
+import static java.lang.Math.toIntExact;
 import static java.lang.String.format;
 import static java.util.Collections.nCopies;
 
@@ -289,6 +291,15 @@ public class H2QueryRunner
                             row.add(padSpaces(stringValue, (CharType) type));
                         }
                     }
+                    else if (VARBINARY.equals(type)) {
+                        byte[] bytes = resultSet.getBytes(i);
+                        if (resultSet.wasNull()) {
+                            row.add(null);
+                        }
+                        else {
+                            row.add(bytes);
+                        }
+                    }
                     else if (DATE.equals(type)) {
                         // resultSet.getDate(i) doesn't work if JVM's zone skipped day being retrieved (e.g. 2011-12-30 and Pacific/Apia zone)
                         LocalDate dateValue = resultSet.getObject(i, LocalDate.class);
@@ -404,7 +415,7 @@ public class H2QueryRunner
                         batch.bind(column, cursor.getLong(column));
                     }
                     else if (INTEGER.equals(type)) {
-                        batch.bind(column, (int) cursor.getLong(column));
+                        batch.bind(column, toIntExact(cursor.getLong(column)));
                     }
                     else if (DOUBLE.equals(type)) {
                         batch.bind(column, cursor.getDouble(column));

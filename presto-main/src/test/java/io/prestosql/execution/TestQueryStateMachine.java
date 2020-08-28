@@ -20,7 +20,6 @@ import io.airlift.testing.TestingTicker;
 import io.airlift.units.Duration;
 import io.prestosql.Session;
 import io.prestosql.client.FailureInfo;
-import io.prestosql.connector.CatalogName;
 import io.prestosql.execution.warnings.WarningCollector;
 import io.prestosql.memory.VersionedMemoryPoolId;
 import io.prestosql.metadata.Metadata;
@@ -31,6 +30,7 @@ import io.prestosql.spi.PrestoException;
 import io.prestosql.spi.memory.MemoryPoolId;
 import io.prestosql.spi.resourcegroups.ResourceGroupId;
 import io.prestosql.spi.type.Type;
+import io.prestosql.sql.analyzer.Output;
 import io.prestosql.transaction.TransactionManager;
 import org.testng.annotations.AfterClass;
 import org.testng.annotations.Test;
@@ -60,6 +60,7 @@ import static io.prestosql.metadata.MetadataManager.createTestMetadataManager;
 import static io.prestosql.spi.StandardErrorCode.GENERIC_INTERNAL_ERROR;
 import static io.prestosql.spi.StandardErrorCode.USER_CANCELED;
 import static io.prestosql.spi.type.BigintType.BIGINT;
+import static io.prestosql.testing.TestingEventListenerManager.emptyEventListenerManager;
 import static io.prestosql.transaction.InMemoryTransactionManager.createTestTransactionManager;
 import static java.util.concurrent.Executors.newCachedThreadPool;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
@@ -76,7 +77,7 @@ public class TestQueryStateMachine
     private static final String QUERY = "sql";
     private static final URI LOCATION = URI.create("fake://fake-query");
     private static final SQLException FAILED_CAUSE = new SQLException("FAILED");
-    private static final List<Input> INPUTS = ImmutableList.of(new Input(new CatalogName("connector"), "schema", "table", Optional.empty(), ImmutableList.of(new Column("a", "varchar"))));
+    private static final List<Input> INPUTS = ImmutableList.of(new Input("connector", "schema", "table", Optional.empty(), ImmutableList.of(new Column("a", "varchar"))));
     private static final Optional<Output> OUTPUT = Optional.empty();
     private static final List<String> OUTPUT_FIELD_NAMES = ImmutableList.of("a", "b", "c");
     private static final List<Type> OUTPUT_FIELD_TYPES = ImmutableList.of(BIGINT, BIGINT, BIGINT);
@@ -492,7 +493,10 @@ public class TestQueryStateMachine
     {
         Metadata metadata = createTestMetadataManager();
         TransactionManager transactionManager = createTestTransactionManager();
-        AccessControl accessControl = new AccessControlManager(transactionManager, new AccessControlConfig());
+        AccessControl accessControl = new AccessControlManager(
+                transactionManager,
+                emptyEventListenerManager(),
+                new AccessControlConfig());
         QueryStateMachine stateMachine = QueryStateMachine.beginWithTicker(
                 QUERY,
                 Optional.empty(),
@@ -529,7 +533,7 @@ public class TestQueryStateMachine
         assertEquals(actual.getLocale(), expected.getLocale());
         assertEquals(actual.getRemoteUserAddress(), expected.getRemoteUserAddress());
         assertEquals(actual.getUserAgent(), expected.getUserAgent());
-        assertEquals(actual.getStartTime(), expected.getStartTime());
+        assertEquals(actual.getStart(), expected.getStart());
         assertEquals(actual.getSystemProperties(), expected.getSystemProperties());
         assertEquals(actual.getConnectorProperties(), expected.getConnectorProperties());
     }

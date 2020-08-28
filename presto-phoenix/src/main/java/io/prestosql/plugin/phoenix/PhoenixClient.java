@@ -76,7 +76,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static io.prestosql.plugin.jdbc.StandardColumnMappings.doubleWriteFunction;
 import static io.prestosql.plugin.jdbc.StandardColumnMappings.realColumnMapping;
 import static io.prestosql.plugin.jdbc.StandardColumnMappings.realWriteFunction;
-import static io.prestosql.plugin.jdbc.StandardColumnMappings.timeWriteFunction;
+import static io.prestosql.plugin.jdbc.StandardColumnMappings.timeWriteFunctionUsingSqlTime;
 import static io.prestosql.plugin.jdbc.StandardColumnMappings.varcharColumnMapping;
 import static io.prestosql.plugin.jdbc.TypeHandlingJdbcPropertiesProvider.getUnsupportedTypeHandling;
 import static io.prestosql.plugin.jdbc.UnsupportedTypeHandling.CONVERT_TO_VARCHAR;
@@ -144,12 +144,7 @@ public class PhoenixClient
 
     public void execute(ConnectorSession session, String statement)
     {
-        try (Connection connection = connectionFactory.openConnection(JdbcIdentity.from(session))) {
-            execute(connection, statement);
-        }
-        catch (SQLException e) {
-            throw new PrestoException(PHOENIX_QUERY_ERROR, "Error while executing statement", e);
-        }
+        execute(JdbcIdentity.from(session), statement);
     }
 
     @Override
@@ -287,7 +282,7 @@ public class PhoenixClient
             return WriteMapping.longMapping("float", realWriteFunction());
         }
         if (TIME.equals(type)) {
-            return WriteMapping.longMapping("time", timeWriteFunction());
+            return WriteMapping.longMapping("time", timeWriteFunctionUsingSqlTime(session));
         }
         // Phoenix doesn't support _WITH_TIME_ZONE
         if (TIME_WITH_TIME_ZONE.equals(type) || TIMESTAMP_WITH_TIME_ZONE.equals(type)) {
@@ -300,6 +295,12 @@ public class PhoenixClient
             return WriteMapping.blockMapping(elementDataType + " ARRAY", arrayWriteFunction(session, elementType, elementWriteName));
         }
         return super.toWriteMapping(session, type);
+    }
+
+    @Override
+    public boolean isLimitGuaranteed(ConnectorSession session)
+    {
+        return false;
     }
 
     private static ColumnMapping arrayColumnMapping(ConnectorSession session, ArrayType arrayType, String elementJdbcTypeName)

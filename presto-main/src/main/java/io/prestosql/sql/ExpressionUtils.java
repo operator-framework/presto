@@ -70,15 +70,21 @@ public final class ExpressionUtils
 
     public static List<Expression> extractPredicates(LogicalBinaryExpression.Operator operator, Expression expression)
     {
+        ImmutableList.Builder<Expression> resultBuilder = ImmutableList.builder();
+        extractPredicates(operator, expression, resultBuilder);
+        return resultBuilder.build();
+    }
+
+    private static void extractPredicates(LogicalBinaryExpression.Operator operator, Expression expression, ImmutableList.Builder<Expression> resultBuilder)
+    {
         if (expression instanceof LogicalBinaryExpression && ((LogicalBinaryExpression) expression).getOperator() == operator) {
             LogicalBinaryExpression logicalBinaryExpression = (LogicalBinaryExpression) expression;
-            return ImmutableList.<Expression>builder()
-                    .addAll(extractPredicates(operator, logicalBinaryExpression.getLeft()))
-                    .addAll(extractPredicates(operator, logicalBinaryExpression.getRight()))
-                    .build();
+            extractPredicates(operator, logicalBinaryExpression.getLeft(), resultBuilder);
+            extractPredicates(operator, logicalBinaryExpression.getRight(), resultBuilder);
         }
-
-        return ImmutableList.of(expression);
+        else {
+            resultBuilder.add(expression);
+        }
     }
 
     public static Expression and(Expression... expressions)
@@ -197,6 +203,22 @@ public final class ExpressionUtils
                 .collect(toList());
 
         conjuncts = removeDuplicates(metadata, conjuncts);
+
+        if (conjuncts.contains(FALSE_LITERAL)) {
+            return FALSE_LITERAL;
+        }
+
+        return and(conjuncts);
+    }
+
+    public static Expression combineConjunctsWithDuplicates(Collection<Expression> expressions)
+    {
+        requireNonNull(expressions, "expressions is null");
+
+        List<Expression> conjuncts = expressions.stream()
+                .flatMap(e -> ExpressionUtils.extractConjuncts(e).stream())
+                .filter(e -> !e.equals(TRUE_LITERAL))
+                .collect(toList());
 
         if (conjuncts.contains(FALSE_LITERAL)) {
             return FALSE_LITERAL;

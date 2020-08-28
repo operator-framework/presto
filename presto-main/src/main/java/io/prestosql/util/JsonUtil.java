@@ -229,7 +229,7 @@ public final class JsonUtil
                 return (block, position) -> String.valueOf(type.getLong(block, position));
             }
             if (type instanceof RealType) {
-                return (block, position) -> String.valueOf(intBitsToFloat((int) type.getLong(block, position)));
+                return (block, position) -> String.valueOf(intBitsToFloat(toIntExact(type.getLong(block, position))));
             }
             if (type instanceof DoubleType) {
                 return (block, position) -> String.valueOf(type.getDouble(block, position));
@@ -382,7 +382,7 @@ public final class JsonUtil
                 jsonGenerator.writeNull();
             }
             else {
-                float value = intBitsToFloat((int) REAL.getLong(block, position));
+                float value = intBitsToFloat(toIntExact(REAL.getLong(block, position)));
                 jsonGenerator.writeNumber(value);
             }
         }
@@ -508,7 +508,13 @@ public final class JsonUtil
             }
             else {
                 long value = TIMESTAMP.getLong(block, position);
-                jsonGenerator.writeString(printTimestampWithoutTimeZone(session.getTimeZoneKey(), value));
+
+                if (session.isLegacyTimestamp()) {
+                    jsonGenerator.writeString(printTimestampWithoutTimeZone(session.getTimeZoneKey(), value));
+                }
+                else {
+                    jsonGenerator.writeString(printTimestampWithoutTimeZone(value));
+                }
             }
         }
     }
@@ -524,8 +530,8 @@ public final class JsonUtil
                 jsonGenerator.writeNull();
             }
             else {
-                long value = DATE.getLong(block, position);
-                jsonGenerator.writeString(printDate((int) value));
+                int value = toIntExact(DATE.getLong(block, position));
+                jsonGenerator.writeString(printDate(value));
             }
         }
     }
@@ -1238,7 +1244,7 @@ public final class JsonUtil
 
     public static Optional<Map<String, Integer>> getFieldNameToIndex(List<Field> rowFields)
     {
-        if (!rowFields.get(0).getName().isPresent()) {
+        if (rowFields.get(0).getName().isEmpty()) {
             return Optional.empty();
         }
 
@@ -1270,7 +1276,7 @@ public final class JsonUtil
         }
         else {
             verify(parser.getCurrentToken() == START_OBJECT);
-            if (!fieldNameToIndex.isPresent()) {
+            if (fieldNameToIndex.isEmpty()) {
                 throw new JsonCastException("Cannot cast a JSON object to anonymous row type. Input must be a JSON array.");
             }
             boolean[] fieldWritten = new boolean[fieldAppenders.length];

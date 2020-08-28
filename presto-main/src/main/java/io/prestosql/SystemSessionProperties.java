@@ -33,15 +33,15 @@ import java.util.Optional;
 import java.util.OptionalInt;
 
 import static com.google.common.base.Preconditions.checkArgument;
+import static io.prestosql.plugin.base.session.PropertyMetadataUtil.dataSizeProperty;
+import static io.prestosql.plugin.base.session.PropertyMetadataUtil.durationProperty;
 import static io.prestosql.spi.StandardErrorCode.INVALID_SESSION_PROPERTY;
 import static io.prestosql.spi.session.PropertyMetadata.booleanProperty;
 import static io.prestosql.spi.session.PropertyMetadata.enumProperty;
 import static io.prestosql.spi.session.PropertyMetadata.integerProperty;
 import static io.prestosql.spi.session.PropertyMetadata.stringProperty;
 import static io.prestosql.spi.type.BigintType.BIGINT;
-import static io.prestosql.spi.type.BooleanType.BOOLEAN;
 import static io.prestosql.spi.type.IntegerType.INTEGER;
-import static io.prestosql.spi.type.VarcharType.VARCHAR;
 import static io.prestosql.sql.analyzer.FeaturesConfig.JoinReorderingStrategy.ELIMINATE_CROSS_JOINS;
 import static io.prestosql.sql.analyzer.FeaturesConfig.JoinReorderingStrategy.NONE;
 import static java.lang.Math.min;
@@ -69,6 +69,7 @@ public final class SystemSessionProperties
     public static final String QUERY_MAX_CPU_TIME = "query_max_cpu_time";
     public static final String QUERY_MAX_STAGE_COUNT = "query_max_stage_count";
     public static final String REDISTRIBUTE_WRITES = "redistribute_writes";
+    public static final String USE_PREFERRED_WRITE_PARTITIONING = "use_preferred_write_partitioning";
     public static final String SCALE_WRITERS = "scale_writers";
     public static final String WRITER_MIN_SIZE = "writer_min_size";
     public static final String PUSH_TABLE_WRITE_THROUGH_UNION = "push_table_write_through_union";
@@ -98,7 +99,7 @@ public final class SystemSessionProperties
     public static final String EXCHANGE_COMPRESSION = "exchange_compression";
     public static final String LEGACY_TIMESTAMP = "legacy_timestamp";
     public static final String ENABLE_INTERMEDIATE_AGGREGATIONS = "enable_intermediate_aggregations";
-    public static final String PUSH_AGGREGATION_THROUGH_JOIN = "push_aggregation_through_join";
+    public static final String PUSH_AGGREGATION_THROUGH_OUTER_JOIN = "push_aggregation_through_outer_join";
     public static final String PUSH_PARTIAL_AGGREGATION_THROUGH_JOIN = "push_partial_aggregation_through_join";
     public static final String PARSE_DECIMAL_LITERALS_AS_DOUBLE = "parse_decimal_literals_as_double";
     public static final String FORCE_SINGLE_NODE_OUTPUT = "force_single_node_output";
@@ -125,6 +126,9 @@ public final class SystemSessionProperties
     public static final String DYNAMIC_FILTERING_MAX_PER_DRIVER_ROW_COUNT = "dynamic_filtering_max_per_driver_row_count";
     public static final String DYNAMIC_FILTERING_MAX_PER_DRIVER_SIZE = "dynamic_filtering_max_per_driver_size";
     public static final String IGNORE_DOWNSTREAM_PREFERENCES = "ignore_downstream_preferences";
+    public static final String REQUIRED_WORKERS_COUNT = "required_workers_count";
+    public static final String REQUIRED_WORKERS_MAX_WAIT_TIME = "required_workers_max_wait_time";
+    public static final String COST_ESTIMATION_WORKER_COUNT = "cost_estimation_worker_count";
 
     private final List<PropertyMetadata<?>> sessionProperties;
 
@@ -201,6 +205,11 @@ public final class SystemSessionProperties
                         REDISTRIBUTE_WRITES,
                         "Force parallel distributed writes",
                         featuresConfig.isRedistributeWrites(),
+                        false),
+                booleanProperty(
+                        USE_PREFERRED_WRITE_PARTITIONING,
+                        "Use preferred write partitioning",
+                        featuresConfig.isUsePreferredWritePartitioning(),
                         false),
                 booleanProperty(
                         SCALE_WRITERS,
@@ -347,23 +356,11 @@ public final class SystemSessionProperties
                         "Experimental: Run a fixed number of groups concurrently for eligible JOINs",
                         featuresConfig.getConcurrentLifespansPerTask(),
                         false),
-                new PropertyMetadata<>(
+                booleanProperty(
                         SPILL_ENABLED,
                         "Enable spilling",
-                        BOOLEAN,
-                        Boolean.class,
                         featuresConfig.isSpillEnabled(),
-                        false,
-                        value -> {
-                            boolean spillEnabled = (Boolean) value;
-                            if (spillEnabled && featuresConfig.getSpillerSpillPaths().isEmpty()) {
-                                throw new PrestoException(
-                                        INVALID_SESSION_PROPERTY,
-                                        format("%s cannot be set to true; no spill paths configured", SPILL_ENABLED));
-                            }
-                            return spillEnabled;
-                        },
-                        value -> value),
+                        false),
                 booleanProperty(
                         SPILL_ORDER_BY,
                         "Spill in OrderBy if spill_enabled is also set",
@@ -415,14 +412,14 @@ public final class SystemSessionProperties
                         featuresConfig.isEnableIntermediateAggregations(),
                         false),
                 booleanProperty(
-                        PUSH_AGGREGATION_THROUGH_JOIN,
+                        PUSH_AGGREGATION_THROUGH_OUTER_JOIN,
                         "Allow pushing aggregations below joins",
-                        featuresConfig.isPushAggregationThroughJoin(),
+                        featuresConfig.isPushAggregationThroughOuterJoin(),
                         false),
                 booleanProperty(
                         PUSH_PARTIAL_AGGREGATION_THROUGH_JOIN,
                         "Push partial aggregations below joins",
-                        false,
+                        featuresConfig.isPushPartialAggregationThoughJoin(),
                         false),
                 booleanProperty(
                         PARSE_DECIMAL_LITERALS_AS_DOUBLE,
@@ -525,7 +522,7 @@ public final class SystemSessionProperties
                         false),
                 booleanProperty(
                         ENABLE_DYNAMIC_FILTERING,
-                        "Experimental: Enable dynamic filtering",
+                        "Enable dynamic filtering",
                         featuresConfig.isEnableDynamicFiltering(),
                         false),
                 dataSizeProperty(
@@ -552,7 +549,22 @@ public final class SystemSessionProperties
                         IGNORE_DOWNSTREAM_PREFERENCES,
                         "Ignore Parent's PreferredProperties in AddExchange optimizer",
                         featuresConfig.isIgnoreDownstreamPreferences(),
-                        false));
+                        false),
+                integerProperty(
+                        REQUIRED_WORKERS_COUNT,
+                        "Minimum number of active workers that must be available before the query will start",
+                        queryManagerConfig.getRequiredWorkers(),
+                        false),
+                durationProperty(
+                        REQUIRED_WORKERS_MAX_WAIT_TIME,
+                        "Maximum time to wait for minimum number of workers before the query is failed",
+                        queryManagerConfig.getRequiredWorkersMaxWait(),
+                        false),
+                integerProperty(
+                        COST_ESTIMATION_WORKER_COUNT,
+                        "Set the estimate count of workers while planning",
+                        null,
+                        true));
     }
 
     public List<PropertyMetadata<?>> getSessionProperties()
@@ -575,9 +587,9 @@ public final class SystemSessionProperties
         return session.getSystemProperty(JOIN_DISTRIBUTION_TYPE, JoinDistributionType.class);
     }
 
-    public static Optional<DataSize> getJoinMaxBroadcastTableSize(Session session)
+    public static DataSize getJoinMaxBroadcastTableSize(Session session)
     {
-        return Optional.ofNullable(session.getSystemProperty(JOIN_MAX_BROADCAST_TABLE_SIZE, DataSize.class));
+        return session.getSystemProperty(JOIN_MAX_BROADCAST_TABLE_SIZE, DataSize.class);
     }
 
     public static boolean isDistributedIndexJoinEnabled(Session session)
@@ -613,6 +625,11 @@ public final class SystemSessionProperties
     public static boolean isRedistributeWrites(Session session)
     {
         return session.getSystemProperty(REDISTRIBUTE_WRITES, Boolean.class);
+    }
+
+    public static boolean isUsePreferredWritePartitioning(Session session)
+    {
+        return session.getSystemProperty(USE_PREFERRED_WRITE_PARTITIONING, Boolean.class);
     }
 
     public static boolean isScaleWriters(Session session)
@@ -811,12 +828,12 @@ public final class SystemSessionProperties
         return session.getSystemProperty(ENABLE_INTERMEDIATE_AGGREGATIONS, Boolean.class);
     }
 
-    public static boolean shouldPushAggregationThroughJoin(Session session)
+    public static boolean isPushAggregationThroughOuterJoin(Session session)
     {
-        return session.getSystemProperty(PUSH_AGGREGATION_THROUGH_JOIN, Boolean.class);
+        return session.getSystemProperty(PUSH_AGGREGATION_THROUGH_OUTER_JOIN, Boolean.class);
     }
 
-    public static boolean isPushAggregationThroughJoin(Session session)
+    public static boolean isPushPartialAggregationThroughJoin(Session session)
     {
         return session.getSystemProperty(PUSH_PARTIAL_AGGREGATION_THROUGH_JOIN, Boolean.class);
     }
@@ -983,29 +1000,18 @@ public final class SystemSessionProperties
         return session.getSystemProperty(IGNORE_DOWNSTREAM_PREFERENCES, Boolean.class);
     }
 
-    private static PropertyMetadata<DataSize> dataSizeProperty(String name, String description, DataSize defaultValue, boolean hidden)
+    public static int getRequiredWorkers(Session session)
     {
-        return new PropertyMetadata<>(
-                name,
-                description,
-                VARCHAR,
-                DataSize.class,
-                defaultValue,
-                hidden,
-                value -> DataSize.valueOf((String) value),
-                DataSize::toString);
+        return session.getSystemProperty(REQUIRED_WORKERS_COUNT, Integer.class);
     }
 
-    private static PropertyMetadata<Duration> durationProperty(String name, String description, Duration defaultValue, boolean hidden)
+    public static Duration getRequiredWorkersMaxWait(Session session)
     {
-        return new PropertyMetadata<>(
-                name,
-                description,
-                VARCHAR,
-                Duration.class,
-                defaultValue,
-                hidden,
-                value -> Duration.valueOf((String) value),
-                Duration::toString);
+        return session.getSystemProperty(REQUIRED_WORKERS_MAX_WAIT_TIME, Duration.class);
+    }
+
+    public static Integer getCostEstimationWorkerCount(Session session)
+    {
+        return session.getSystemProperty(COST_ESTIMATION_WORKER_COUNT, Integer.class);
     }
 }

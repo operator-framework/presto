@@ -55,11 +55,6 @@ import static org.testng.Assert.assertEquals;
 public abstract class AbstractCostBasedPlanTest
         extends BasePlanTest
 {
-    public AbstractCostBasedPlanTest(LocalQueryRunnerSupplier supplier)
-    {
-        super(supplier);
-    }
-
     protected abstract Stream<String> getQueryResourcePaths();
 
     @DataProvider
@@ -81,7 +76,6 @@ public abstract class AbstractCostBasedPlanTest
     }
 
     protected void generate()
-            throws Exception
     {
         initPlanTest();
         try {

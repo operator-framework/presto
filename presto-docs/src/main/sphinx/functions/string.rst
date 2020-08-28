@@ -7,6 +7,9 @@ String Operators
 
 The ``||`` operator performs concatenation.
 
+The ``LIKE`` statement can be used for pattern matching and is documented in
+:ref:`like_operator`.
+
 String Functions
 ----------------
 
@@ -140,6 +143,10 @@ String Functions
 
     Returns the starting position of the first instance of ``substring`` in
     ``string``. Positions start with ``1``. If not found, ``0`` is returned.
+
+.. function:: starts_with(string, substring) -> boolean
+
+    Tests whether ``substring`` is a prefix of ``string``.
 
 .. function:: substr(string, start) -> varchar
 

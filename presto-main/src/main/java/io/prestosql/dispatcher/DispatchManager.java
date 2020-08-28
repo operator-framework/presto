@@ -138,7 +138,7 @@ public class DispatchManager
         requireNonNull(sessionContext, "sessionFactory is null");
         requireNonNull(query, "query is null");
         checkArgument(!query.isEmpty(), "query must not be empty string");
-        checkArgument(!queryTracker.tryGetQuery(queryId).isPresent(), "query %s already exists", queryId);
+        checkArgument(queryTracker.tryGetQuery(queryId).isEmpty(), "query %s already exists", queryId);
 
         DispatchQueryCreationFuture queryCreationFuture = new DispatchQueryCreationFuture();
         queryExecutor.execute(() -> {
@@ -170,6 +170,9 @@ public class DispatchManager
             // decode session
             session = sessionSupplier.createSession(queryId, sessionContext);
 
+            // check query execute permissions
+            accessControl.checkCanExecuteQuery(sessionContext.getIdentity());
+
             // prepare query
             preparedQuery = queryPreparer.prepareQuery(session, query);
 
@@ -178,6 +181,7 @@ public class DispatchManager
             SelectionContext<C> selectionContext = resourceGroupManager.selectGroup(new SelectionCriteria(
                     sessionContext.getIdentity().getPrincipal().isPresent(),
                     sessionContext.getIdentity().getUser(),
+                    sessionContext.getIdentity().getGroups(),
                     Optional.ofNullable(sessionContext.getSource()),
                     sessionContext.getClientTags(),
                     sessionContext.getResourceEstimates(),

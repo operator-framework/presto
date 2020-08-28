@@ -5,12 +5,12 @@
     <parent>
         <groupId>io.airlift</groupId>
         <artifactId>airbase</artifactId>
-        <version>93</version>
+        <version>101</version>
     </parent>
 
     <groupId>io.prestosql</groupId>
     <artifactId>presto-root</artifactId>
-    <version>328</version>
+    <version>334</version>
     <packaging>pom</packaging>
 
     <name>presto-root</name>
@@ -30,7 +30,7 @@
     <scm>
         <connection>scm:git:git://github.com/prestosql/presto.git</connection>
         <url>https://github.com/prestosql/presto</url>
-        <tag>328</tag>
+        <tag>334</tag>
     </scm>
 
     <properties>
@@ -40,28 +40,20 @@
         <air.check.skip-pmd>true</air.check.skip-pmd>
         <air.check.skip-jacoco>true</air.check.skip-jacoco>
 
-        <air.java.version>1.8.0-121</air.java.version>
-        <air.maven.version>3.3.9</air.maven.version>
+        <project.build.targetJdk>11</project.build.targetJdk>
+        <air.modernizer.java-version>8</air.modernizer.java-version>
 
         <dep.antlr.version>4.7.1</dep.antlr.version>
-        <dep.airlift.version>0.189</dep.airlift.version>
+        <dep.airlift.version>0.197</dep.airlift.version>
         <dep.packaging.version>${dep.airlift.version}</dep.packaging.version>
-        <dep.slice.version>0.36</dep.slice.version>
-        <dep.aws-sdk.version>1.11.602</dep.aws-sdk.version>
+        <dep.aws-sdk.version>1.11.749</dep.aws-sdk.version>
         <dep.okhttp.version>3.9.0</dep.okhttp.version>
         <dep.jdbi3.version>3.4.0</dep.jdbi3.version>
         <dep.drift.version>1.14</dep.drift.version>
-        <dep.joda.version>2.10.3</dep.joda.version>
-        <dep.tempto.version>170</dep.tempto.version>
-        <dep.testng.version>6.10</dep.testng.version>
-        <dep.assertj-core.version>3.8.0</dep.assertj-core.version>
-        <!-- TODO: remove after updating to Airbase 94 -->
-        <dep.slf4j.version>1.7.29</dep.slf4j.version>
-        <dep.jmxutils.version>1.21</dep.jmxutils.version>
-        <dep.cglib.version>3.3.0</dep.cglib.version>
-        <dep.javax-servlet.version>4.0.1</dep.javax-servlet.version>
+        <dep.tempto.version>175</dep.tempto.version>
         <dep.gcs.version>2.0.0</dep.gcs.version>
-        <dep.errorprone.version>2.3.3</dep.errorprone.version>
+        <dep.errorprone.version>2.3.4</dep.errorprone.version>
+        <rubix.version>0.3.9</rubix.version>
 
         <!--
           America/Bahia_Banderas has:
@@ -73,7 +65,8 @@
         <air.test.timezone>America/Bahia_Banderas</air.test.timezone>
         <air.test.parallel>methods</air.test.parallel>
         <air.test.thread-count>2</air.test.thread-count>
-        <air.test.jvmsize>2g</air.test.jvmsize>
+        <!-- Be conservative about memory allotment, because tests start background process (e.g. docker containers) -->
+        <air.test.jvmsize>3g</air.test.jvmsize>
 
         <air.javadoc.lint>-missing</air.javadoc.lint>
     </properties>
@@ -91,6 +84,7 @@
         <module>presto-cassandra</module>
         <module>presto-blackhole</module>
         <module>presto-memory</module>
+        <module>presto-noop</module>
         <module>presto-orc</module>
         <module>presto-parquet</module>
         <module>presto-rcfile</module>
@@ -113,14 +107,15 @@
         <module>presto-client</module>
         <module>presto-parser</module>
         <module>presto-main</module>
+        <module>presto-server-main</module>
         <module>presto-ml</module>
         <module>presto-geospatial</module>
         <module>presto-geospatial-toolkit</module>
         <module>presto-benchmark</module>
         <module>presto-testing</module>
-        <module>presto-testing-docker</module>
         <module>presto-tests</module>
         <module>presto-product-tests</module>
+        <module>presto-product-tests-launcher</module>
         <module>presto-jdbc</module>
         <module>presto-cli</module>
         <module>presto-benchmark-driver</module>
@@ -139,11 +134,15 @@
         <module>presto-thrift</module>
         <module>presto-matching</module>
         <module>presto-memory-context</module>
+        <module>presto-prometheus</module>
         <module>presto-proxy</module>
         <module>presto-kudu</module>
         <module>presto-elasticsearch</module>
         <module>presto-iceberg</module>
         <module>presto-google-sheets</module>
+        <module>presto-bigquery</module>
+        <module>presto-pinot</module>
+        <module>presto-oracle</module>
     </modules>
 
     <dependencyManagement>
@@ -299,6 +298,12 @@
 
             <dependency>
                 <groupId>io.prestosql</groupId>
+                <artifactId>presto-noop</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+
+            <dependency>
+                <groupId>io.prestosql</groupId>
                 <artifactId>presto-base-jdbc</artifactId>
                 <version>${project.version}</version>
             </dependency>
@@ -409,12 +414,6 @@
 
             <dependency>
                 <groupId>io.prestosql</groupId>
-                <artifactId>presto-testing-docker</artifactId>
-                <version>${project.version}</version>
-            </dependency>
-
-            <dependency>
-                <groupId>io.prestosql</groupId>
                 <artifactId>presto-tests</artifactId>
                 <version>${project.version}</version>
             </dependency>
@@ -446,7 +445,7 @@
             <dependency>
                 <groupId>io.prestosql.hadoop</groupId>
                 <artifactId>hadoop-apache</artifactId>
-                <version>3.2.0-5</version>
+                <version>3.2.0-8</version>
             </dependency>
 
             <dependency>
@@ -458,7 +457,7 @@
             <dependency>
                 <groupId>io.prestosql.orc</groupId>
                 <artifactId>orc-protobuf</artifactId>
-                <version>9</version>
+                <version>10</version>
             </dependency>
 
             <dependency>
@@ -488,9 +487,15 @@
             </dependency>
 
             <dependency>
+                <groupId>io.prestosql</groupId>
+                <artifactId>presto-pinot</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+
+            <dependency>
                 <groupId>io.airlift</groupId>
                 <artifactId>aircompressor</artifactId>
-                <version>0.15</version>
+                <version>0.16</version>
             </dependency>
 
             <dependency>
@@ -520,7 +525,7 @@
             <dependency>
                 <groupId>io.airlift</groupId>
                 <artifactId>units</artifactId>
-                <version>1.4</version>
+                <version>1.6</version>
             </dependency>
 
             <dependency>
@@ -632,6 +637,12 @@
             </dependency>
 
             <dependency>
+                <groupId>io.airlift</groupId>
+                <artifactId>parameternames</artifactId>
+                <version>1.4</version>
+            </dependency>
+
+            <dependency>
                 <groupId>io.airlift.drift</groupId>
                 <artifactId>drift-api</artifactId>
                 <version>${dep.drift.version}</version>
@@ -668,21 +679,15 @@
             </dependency>
 
             <dependency>
-                <groupId>io.airlift.tpch</groupId>
+                <groupId>io.prestosql.tpch</groupId>
                 <artifactId>tpch</artifactId>
-                <version>0.10</version>
+                <version>1.0</version>
             </dependency>
 
             <dependency>
-                <groupId>com.teradata.tpcds</groupId>
+                <groupId>io.prestosql.tpcds</groupId>
                 <artifactId>tpcds</artifactId>
-                <version>1.2</version>
-                <exclusions>
-                    <exclusion>
-                        <groupId>com.google.code.findbugs</groupId>
-                        <artifactId>annotations</artifactId>
-                    </exclusion>
-                </exclusions>
+                <version>1.3</version>
             </dependency>
 
             <dependency>
@@ -694,7 +699,7 @@
             <dependency>
                 <groupId>com.h2database</groupId>
                 <artifactId>h2</artifactId>
-                <version>1.4.199</version>
+                <version>1.4.200</version>
             </dependency>
 
             <dependency>
@@ -830,13 +835,19 @@
             <dependency>
                 <groupId>org.apache.avro</groupId>
                 <artifactId>avro</artifactId>
-                <version>1.9.1</version>
+                <version>1.9.2</version>
             </dependency>
 
             <dependency>
                 <groupId>net.sf.opencsv</groupId>
                 <artifactId>opencsv</artifactId>
                 <version>2.3</version>
+            </dependency>
+
+            <dependency>
+                <groupId>org.apache.commons</groupId>
+                <artifactId>commons-compress</artifactId>
+                <version>1.20</version>
             </dependency>
 
             <dependency>
@@ -854,7 +865,7 @@
             <dependency>
                 <groupId>org.alluxio</groupId>
                 <artifactId>alluxio-shaded-client</artifactId>
-                <version>2.0.1</version>
+                <version>2.1.2</version>
                 <exclusions>
                     <exclusion>
                         <groupId>org.slf4j</groupId>
@@ -994,9 +1005,9 @@
             </dependency>
 
             <dependency>
-                <groupId>io.airlift</groupId>
-                <artifactId>testing-mysql-server</artifactId>
-                <version>8.0.12-2</version>
+                <groupId>javax.xml.bind</groupId>
+                <artifactId>jaxb-api</artifactId>
+                <version>2.3.1</version>
             </dependency>
 
             <dependency>
@@ -1034,12 +1045,6 @@
             </dependency>
 
             <dependency>
-                <groupId>io.airlift</groupId>
-                <artifactId>testing-postgresql-server</artifactId>
-                <version>9.6.3-3</version>
-            </dependency>
-
-            <dependency>
                 <groupId>org.xerial.snappy</groupId>
                 <artifactId>snappy-java</artifactId>
                 <version>1.1.7.3</version>
@@ -1069,18 +1074,6 @@
                 <groupId>org.jgrapht</groupId>
                 <artifactId>jgrapht-core</artifactId>
                 <version>0.9.0</version>
-            </dependency>
-
-            <dependency>
-                <groupId>redis.clients</groupId>
-                <artifactId>jedis</artifactId>
-                <version>2.6.2</version>
-            </dependency>
-
-            <dependency>
-                <groupId>com.orange.redis-embedded</groupId>
-                <artifactId>embedded-redis</artifactId>
-                <version>0.6</version>
             </dependency>
 
             <dependency>
@@ -1158,15 +1151,9 @@
             </dependency>
 
             <dependency>
-                <groupId>org.apache.lucene</groupId>
-                <artifactId>lucene-analyzers-common</artifactId>
-                <version>7.2.1</version>
-            </dependency>
-
-            <dependency>
                 <groupId>org.locationtech.jts</groupId>
                 <artifactId>jts-core</artifactId>
-                <version>1.15.0</version>
+                <version>1.16.1</version>
             </dependency>
 
             <dependency>
@@ -1196,22 +1183,16 @@
             </dependency>
 
             <dependency>
-                <groupId>com.starburstdata</groupId>
-                <artifactId>starburst-spotify-docker-client</artifactId>
-                <version>8.11.7-0.6</version>
-            </dependency>
-
-            <dependency>
                 <groupId>net.jodah</groupId>
                 <artifactId>failsafe</artifactId>
                 <version>2.0.1</version>
             </dependency>
 
-            <!-- TODO: remove after updating to Airbase 94 -->
+            <!-- TODO: move this to Airbase -->
             <dependency>
-                <groupId>javax.annotation</groupId>
-                <artifactId>javax.annotation-api</artifactId>
-                <version>1.3.2</version>
+                <groupId>com.fasterxml.jackson.dataformat</groupId>
+                <artifactId>jackson-dataformat-cbor</artifactId>
+                <version>${dep.jackson.version}</version>
             </dependency>
 
             <!-- force newer version to be used for dependencies -->
@@ -1228,17 +1209,17 @@
             </dependency>
 
             <dependency>
-                <groupId>org.checkerframework</groupId>
-                <artifactId>checker-qual</artifactId>
-                <version>2.8.2</version>
+                <groupId>org.testcontainers</groupId>
+                <artifactId>testcontainers-bom</artifactId>
+                <version>1.13.0</version>
+                <type>pom</type>
+                <scope>import</scope>
             </dependency>
 
             <dependency>
-                <groupId>org.testcontainers</groupId>
-                <artifactId>testcontainers-bom</artifactId>
-                <version>1.12.4</version>
-                <type>pom</type>
-                <scope>import</scope>
+                <groupId>com.qubole.rubix</groupId>
+                <artifactId>rubix-presto-shaded</artifactId>
+                <version>${rubix.version}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>
@@ -1337,6 +1318,12 @@
                         <preparationGoals>clean verify -DskipTests</preparationGoals>
                     </configuration>
                 </plugin>
+
+                <plugin>
+                    <groupId>ca.vanzyl.provisio.maven.plugins</groupId>
+                    <artifactId>provisio-maven-plugin</artifactId>
+                    <version>1.0.9</version>
+                </plugin>
             </plugins>
         </pluginManagement>
 
@@ -1344,14 +1331,13 @@
             <plugin>
                 <groupId>io.prestosql</groupId>
                 <artifactId>presto-maven-plugin</artifactId>
-                <version>8</version>
+                <version>9</version>
                 <extensions>true</extensions>
             </plugin>
 
             <plugin>
-                <groupId>ca.vanzyl.maven.plugins</groupId>
+                <groupId>ca.vanzyl.provisio.maven.plugins</groupId>
                 <artifactId>provisio-maven-plugin</artifactId>
-                <version>1.0.4</version>
                 <extensions>true</extensions>
             </plugin>
 
@@ -1425,15 +1411,6 @@
         <profile>
             <id>errorprone-compiler-presto</id><!-- airbase defines "errorprone-compiler" profile but set up this ourselves -->
 
-            <!-- TODO simplify the following configuration when using JDK 9+ for compilation. See https://errorprone.info/docs/installation -->
-            <properties>
-                <javac.version>9+181-r4173-1</javac.version>
-
-                <!-- with errorprone compiler, checkstyle is run on generated sources too and they may not match our checkstyle rules -->
-                <air.check.skip-checkstyle>true</air.check.skip-checkstyle>
-            </properties>
-
-            <!-- using github.com/google/error-prone-javac is required when running on JDK 8 -->
             <build>
                 <plugins>
                     <plugin>
@@ -1444,10 +1421,9 @@
                         <configuration combine.children="merge">
                             <fork>true</fork>
                             <compilerArgs>
-                                <arg>-J-Xbootclasspath/p:${settings.localRepository}/com/google/errorprone/javac/${javac.version}/javac-${javac.version}.jar</arg>
                                 <arg>-XDcompilePolicy=simple</arg>
                                 <!-- TODO enable more checks, i.e. remove "-XepDisableAllChecks" -->
-                                <arg>-Xplugin:ErrorProne -XepExcludedPaths:.*/target/generated-(|test-)sources/.* -XepDisableAllChecks -Xep:MissingOverride:ERROR -Xep:ClassCanBeStatic:ERROR -Xep:ArrayToString:ERROR</arg>
+                                <arg>-Xplugin:ErrorProne -XepExcludedPaths:.*/target/generated-(|test-)sources/.* -XepDisableAllChecks -Xep:MissingOverride:ERROR -Xep:ClassCanBeStatic:ERROR -Xep:ArrayToString:ERROR -Xep:GetClassOnClass:ERROR</arg>
                             </compilerArgs>
                             <annotationProcessorPaths>
                                 <path>

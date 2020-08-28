@@ -86,7 +86,7 @@ public interface ThriftMetastore
 
     void updateTableStatistics(HiveIdentity identity, String databaseName, String tableName, Function<PartitionStatistics, PartitionStatistics> update);
 
-    void updatePartitionStatistics(HiveIdentity identity, String databaseName, String tableName, String partitionName, Function<PartitionStatistics, PartitionStatistics> update);
+    void updatePartitionStatistics(HiveIdentity identity, Table table, String partitionName, Function<PartitionStatistics, PartitionStatistics> update);
 
     void createRole(String role, String grantor);
 
@@ -94,9 +94,9 @@ public interface ThriftMetastore
 
     Set<String> listRoles();
 
-    void grantRoles(Set<String> roles, Set<HivePrincipal> grantees, boolean withAdminOption, HivePrincipal grantor);
+    void grantRoles(Set<String> roles, Set<HivePrincipal> grantees, boolean adminOption, HivePrincipal grantor);
 
-    void revokeRoles(Set<String> roles, Set<HivePrincipal> grantees, boolean adminOptionFor, HivePrincipal grantor);
+    void revokeRoles(Set<String> roles, Set<HivePrincipal> grantees, boolean adminOption, HivePrincipal grantor);
 
     Set<RoleGrant> listRoleGrants(HivePrincipal principal);
 
@@ -114,7 +114,7 @@ public interface ThriftMetastore
     default Optional<List<FieldSchema>> getFields(HiveIdentity identity, String databaseName, String tableName)
     {
         Optional<Table> table = getTable(identity, databaseName, tableName);
-        if (!table.isPresent()) {
+        if (table.isEmpty()) {
             throw new TableNotFoundException(new SchemaTableName(databaseName, tableName));
         }
 

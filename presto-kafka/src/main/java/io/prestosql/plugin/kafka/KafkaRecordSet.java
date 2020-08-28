@@ -139,13 +139,18 @@ public class KafkaRecordSet
                 records = kafkaConsumer.poll(CONSUMER_POLL_TIMEOUT).iterator();
                 return advanceNextPosition();
             }
-            nextRow(records.next());
-            return true;
+
+            return nextRow(records.next());
         }
 
         private boolean nextRow(ConsumerRecord<byte[], byte[]> message)
         {
             requireNonNull(message, "message is null");
+
+            if (message.offset() >= split.getMessagesRange().getEnd()) {
+                return false;
+            }
+
             completedBytes += max(message.serializedKeySize(), 0) + max(message.serializedValueSize(), 0);
 
             byte[] keyData = EMPTY_BYTE_ARRAY;
@@ -183,10 +188,10 @@ public class KafkaRecordSet
                             currentRowValuesMap.put(columnHandle, longValueProvider(keyData.length));
                             break;
                         case KEY_CORRUPT_FIELD:
-                            currentRowValuesMap.put(columnHandle, booleanValueProvider(!decodedKey.isPresent()));
+                            currentRowValuesMap.put(columnHandle, booleanValueProvider(decodedKey.isEmpty()));
                             break;
                         case MESSAGE_CORRUPT_FIELD:
-                            currentRowValuesMap.put(columnHandle, booleanValueProvider(!decodedValue.isPresent()));
+                            currentRowValuesMap.put(columnHandle, booleanValueProvider(decodedValue.isEmpty()));
                             break;
                         case PARTITION_ID_FIELD:
                             currentRowValuesMap.put(columnHandle, longValueProvider(message.partition()));

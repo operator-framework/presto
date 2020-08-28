@@ -139,6 +139,8 @@ public class TestSqlParserErrorHandling
                                 "<identifier>, <predicate>"},
                 {"SHOW CATALOGS LIKE '%$_%' ESCAPE",
                         "line 1:33: mismatched input '<EOF>'. Expecting: <string>"},
+                {"SHOW SCHEMAS IN foo LIKE '%$_%' ESCAPE",
+                        "line 1:39: mismatched input '<EOF>'. Expecting: <string>"},
                 {"SHOW FUNCTIONS LIKE '%$_%' ESCAPE",
                         "line 1:34: mismatched input '<EOF>'. Expecting: <string>"},
                 {"SHOW SESSION LIKE '%$_%' ESCAPE",
@@ -161,6 +163,36 @@ public class TestSqlParserErrorHandling
                         "1 * 2 * 3 * 4 * 5 * 6 * 7 * 8 * 9 * " +
                         "1 * 2 * 3 * 4 * 5 * 6 * 7 * 8 * 9",
                 "line 1:375: mismatched input '<EOF>'. Expecting: '%', '*', '+', '-', '/', 'AT', 'THEN', '||'");
+    }
+
+    @Test
+    public void testPossibleExponentialBacktracking2()
+    {
+        testStatement("SELECT id FROM t WHERE\n" +
+                        "(f()\n" +
+                        "OR (f()\n" +
+                        "OR (f()\n" +
+                        "OR (f()\n" +
+                        "OR (f()\n" +
+                        "OR (f()\n" +
+                        "OR (f()\n" +
+                        "OR (f()\n" +
+                        "OR (f()\n" +
+                        "OR (f()\n" +
+                        "OR (f()\n" +
+                        "OR (f()\n" +
+                        "OR (f()\n" +
+                        "OR (f()\n" +
+                        "OR (f()\n" +
+                        "OR (f()\n" +
+                        "OR (f()\n" +
+                        "OR (f()\n" +
+                        "OR (f()\n" +
+                        "OR (f()\n" +
+                        "OR (f()\n" +
+                        "OR (f()\n" +
+                        "GROUP BY id",
+                "line 24:1: mismatched input 'GROUP'. Expecting: ')', ',', '.', 'FILTER', 'IGNORE', 'OVER', 'RESPECT', '['");
     }
 
     @Test(dataProvider = "statements")

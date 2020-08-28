@@ -42,9 +42,15 @@ import static io.prestosql.spi.security.AccessDeniedException.denyDropRole;
 import static io.prestosql.spi.security.AccessDeniedException.denyDropSchema;
 import static io.prestosql.spi.security.AccessDeniedException.denyDropTable;
 import static io.prestosql.spi.security.AccessDeniedException.denyDropView;
+import static io.prestosql.spi.security.AccessDeniedException.denyExecuteFunction;
+import static io.prestosql.spi.security.AccessDeniedException.denyExecuteProcedure;
+import static io.prestosql.spi.security.AccessDeniedException.denyExecuteQuery;
+import static io.prestosql.spi.security.AccessDeniedException.denyGrantExecuteFunctionPrivilege;
 import static io.prestosql.spi.security.AccessDeniedException.denyGrantRoles;
 import static io.prestosql.spi.security.AccessDeniedException.denyGrantTablePrivilege;
+import static io.prestosql.spi.security.AccessDeniedException.denyImpersonateUser;
 import static io.prestosql.spi.security.AccessDeniedException.denyInsertTable;
+import static io.prestosql.spi.security.AccessDeniedException.denyKillQuery;
 import static io.prestosql.spi.security.AccessDeniedException.denyRenameColumn;
 import static io.prestosql.spi.security.AccessDeniedException.denyRenameSchema;
 import static io.prestosql.spi.security.AccessDeniedException.denyRenameTable;
@@ -54,22 +60,56 @@ import static io.prestosql.spi.security.AccessDeniedException.denyRevokeTablePri
 import static io.prestosql.spi.security.AccessDeniedException.denySelectColumns;
 import static io.prestosql.spi.security.AccessDeniedException.denySetCatalogSessionProperty;
 import static io.prestosql.spi.security.AccessDeniedException.denySetRole;
+import static io.prestosql.spi.security.AccessDeniedException.denySetSchemaAuthorization;
 import static io.prestosql.spi.security.AccessDeniedException.denySetSystemSessionProperty;
 import static io.prestosql.spi.security.AccessDeniedException.denySetUser;
-import static io.prestosql.spi.security.AccessDeniedException.denyShowColumnsMetadata;
+import static io.prestosql.spi.security.AccessDeniedException.denyShowColumns;
+import static io.prestosql.spi.security.AccessDeniedException.denyShowCreateSchema;
+import static io.prestosql.spi.security.AccessDeniedException.denyShowCreateTable;
 import static io.prestosql.spi.security.AccessDeniedException.denyShowCurrentRoles;
 import static io.prestosql.spi.security.AccessDeniedException.denyShowRoleGrants;
 import static io.prestosql.spi.security.AccessDeniedException.denyShowRoles;
 import static io.prestosql.spi.security.AccessDeniedException.denyShowSchemas;
-import static io.prestosql.spi.security.AccessDeniedException.denyShowTablesMetadata;
+import static io.prestosql.spi.security.AccessDeniedException.denyShowTables;
+import static io.prestosql.spi.security.AccessDeniedException.denyViewQuery;
 
 public class DenyAllAccessControl
         implements AccessControl
 {
     @Override
+    public void checkCanImpersonateUser(Identity identity, String userName)
+    {
+        denyImpersonateUser(identity.getUser(), userName);
+    }
+
+    @Override
     public void checkCanSetUser(Optional<Principal> principal, String userName)
     {
         denySetUser(principal, userName);
+    }
+
+    @Override
+    public void checkCanExecuteQuery(Identity identity)
+    {
+        denyExecuteQuery();
+    }
+
+    @Override
+    public void checkCanViewQueryOwnedBy(Identity identity, String queryOwner)
+    {
+        denyViewQuery();
+    }
+
+    @Override
+    public Set<String> filterQueriesOwnedBy(Identity identity, Set<String> queryOwners)
+    {
+        return ImmutableSet.of();
+    }
+
+    @Override
+    public void checkCanKillQueryOwnedBy(Identity identity, String queryOwner)
+    {
+        denyKillQuery();
     }
 
     @Override
@@ -97,6 +137,24 @@ public class DenyAllAccessControl
     }
 
     @Override
+    public void checkCanShowCreateSchema(SecurityContext context, CatalogSchemaName schemaName)
+    {
+        denyShowCreateSchema(schemaName.toString());
+    }
+
+    @Override
+    public void checkCanShowCreateTable(SecurityContext context, QualifiedObjectName tableName)
+    {
+        denyShowCreateTable(tableName.toString());
+    }
+
+    @Override
+    public void checkCanSetSchemaAuthorization(SecurityContext context, CatalogSchemaName schemaName, PrestoPrincipal principal)
+    {
+        denySetSchemaAuthorization(schemaName.toString(), principal);
+    }
+
+    @Override
     public void checkCanCreateTable(SecurityContext context, QualifiedObjectName tableName)
     {
         denyCreateTable(tableName.toString());
@@ -121,9 +179,9 @@ public class DenyAllAccessControl
     }
 
     @Override
-    public void checkCanShowTablesMetadata(SecurityContext context, CatalogSchemaName schema)
+    public void checkCanShowTables(SecurityContext context, CatalogSchemaName schema)
     {
-        denyShowTablesMetadata(schema.toString());
+        denyShowTables(schema.toString());
     }
 
     @Override
@@ -133,9 +191,9 @@ public class DenyAllAccessControl
     }
 
     @Override
-    public void checkCanShowColumnsMetadata(SecurityContext context, CatalogSchemaTableName table)
+    public void checkCanShowColumns(SecurityContext context, CatalogSchemaTableName table)
     {
-        denyShowColumnsMetadata(table.toString());
+        denyShowColumns(table.toString());
     }
 
     @Override
@@ -211,13 +269,19 @@ public class DenyAllAccessControl
     }
 
     @Override
-    public void checkCanGrantTablePrivilege(SecurityContext context, Privilege privilege, QualifiedObjectName tableName, PrestoPrincipal grantee, boolean withGrantOption)
+    public void checkCanGrantExecuteFunctionPrivilege(SecurityContext context, String functionName, Identity grantee, boolean grantOption)
+    {
+        denyGrantExecuteFunctionPrivilege(functionName, context.getIdentity(), grantee);
+    }
+
+    @Override
+    public void checkCanGrantTablePrivilege(SecurityContext context, Privilege privilege, QualifiedObjectName tableName, PrestoPrincipal grantee, boolean grantOption)
     {
         denyGrantTablePrivilege(privilege.name(), tableName.toString());
     }
 
     @Override
-    public void checkCanRevokeTablePrivilege(SecurityContext context, Privilege privilege, QualifiedObjectName tableName, PrestoPrincipal revokee, boolean grantOptionFor)
+    public void checkCanRevokeTablePrivilege(SecurityContext context, Privilege privilege, QualifiedObjectName tableName, PrestoPrincipal revokee, boolean grantOption)
     {
         denyRevokeTablePrivilege(privilege.name(), tableName.toString());
     }
@@ -253,13 +317,13 @@ public class DenyAllAccessControl
     }
 
     @Override
-    public void checkCanGrantRoles(SecurityContext context, Set<String> roles, Set<PrestoPrincipal> grantees, boolean withAdminOption, Optional<PrestoPrincipal> grantor, String catalogName)
+    public void checkCanGrantRoles(SecurityContext context, Set<String> roles, Set<PrestoPrincipal> grantees, boolean adminOption, Optional<PrestoPrincipal> grantor, String catalogName)
     {
         denyGrantRoles(roles, grantees);
     }
 
     @Override
-    public void checkCanRevokeRoles(SecurityContext context, Set<String> roles, Set<PrestoPrincipal> grantees, boolean adminOptionFor, Optional<PrestoPrincipal> grantor, String catalogName)
+    public void checkCanRevokeRoles(SecurityContext context, Set<String> roles, Set<PrestoPrincipal> grantees, boolean adminOption, Optional<PrestoPrincipal> grantor, String catalogName)
     {
         denyRevokeRoles(roles, grantees);
     }
@@ -286,5 +350,17 @@ public class DenyAllAccessControl
     public void checkCanShowRoleGrants(SecurityContext context, String catalogName)
     {
         denyShowRoleGrants(catalogName);
+    }
+
+    @Override
+    public void checkCanExecuteProcedure(SecurityContext context, QualifiedObjectName procedureName)
+    {
+        denyExecuteProcedure(procedureName.toString());
+    }
+
+    @Override
+    public void checkCanExecuteFunction(SecurityContext context, String functionName)
+    {
+        denyExecuteFunction(functionName);
     }
 }
