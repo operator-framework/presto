@@ -32,7 +32,6 @@ import org.apache.http.client.utils.URIBuilder;
 
 import javax.inject.Inject;
 
-import java.io.File;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.net.URI;
@@ -52,7 +51,7 @@ import static java.util.Objects.requireNonNull;
 
 public class PrometheusClient
 {
-    private PrometheusConnectorConfig config;
+    protected static PrometheusConnectorConfig config;
     static final String METRICS_ENDPOINT = "/api/v1/label/__name__/values";
     private static final OkHttpClient httpClient = new OkHttpClient.Builder().build();
     private final Supplier<Map<String, Object>> tableSupplier;
@@ -145,10 +144,7 @@ public class PrometheusClient
             throws IOException, URISyntaxException
     {
         Request.Builder requestBuilder = new Request.Builder();
-        if (new PrometheusConnectorConfig() != null) {
-            getBearerAuthInfoFromFile().map(bearerToken ->
-                    requestBuilder.header("Authorization", "Bearer " + bearerToken));
-        }
+        getBearerAuthInfoFromFile().map(bearerToken -> requestBuilder.header("Authorization", "Bearer " + bearerToken));
         requestBuilder.url(uri.toURL());
         Request request = requestBuilder.build();
         Response response = httpClient.newCall(request).execute();
@@ -163,11 +159,10 @@ public class PrometheusClient
     static Optional<String> getBearerAuthInfoFromFile()
             throws URISyntaxException
     {
-        return new PrometheusConnectorConfig().getBearerTokenFile()
+        return config.getBearerTokenFile()
                 .map(tokenFileName -> {
                     try {
-                        File tokenFile = tokenFileName;
-                        return Optional.of(Files.toString(tokenFile, UTF_8));
+                        return Optional.of(Files.toString(tokenFileName, UTF_8));
                     }
                     catch (Exception e) {
                         throw new PrestoException(NOT_FOUND, "Failed to find/read file: " + tokenFileName, e);
